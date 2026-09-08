@@ -1,0 +1,16 @@
+tasks:
+  - id: task-api
+    title: "REST API 設計と実装"
+    estimate_hours: 16
+    required_skills:
+      - backend
+    depends_on: []
+    deadline: "2026-09-20"
+  - id: task-ui
+    title: "フロントエンド画面実装"
+    estimate_hours: 24
+    required_skills:
+      - frontend
+    depends_on:
+      - task-api
+    deadline: "2026-09-25"
