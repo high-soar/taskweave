@@ -5,5 +5,14 @@ set -eu
 repository_root=$(git rev-parse --show-toplevel)
 cd "$repository_root"
 
+echo "Running format check before push..."
+npm run format:check
+
 echo "Running lint before push..."
 npm run lint
+
+echo "Running tests before push..."
+npm test
+
+echo "Running typecheck before push..."
+npm run typecheck

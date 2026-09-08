@@ -1,5 +1,5 @@
 {
-  "name": "Development Template",
+  "name": "Taskweave Development",
   "build": {
     "dockerfile": "Dockerfile"
   },
@@ -20,7 +20,12 @@
   ],
   "customizations": {
     "vscode": {
-      "extensions": ["bierner.markdown-mermaid", "google.google-antigravity"]
+      "extensions": [
+        "bierner.markdown-mermaid",
+        "google.google-antigravity",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ]
     }
   }
 }

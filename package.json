@@ -1,6 +1,7 @@
 {
-  "name": "dev-template",
+  "name": "taskweave",
   "version": "0.1.0",
+  "description": "コーディングエージェント向けのスケジュール調整ツール",
   "private": true,
   "type": "module",
   "engines": {

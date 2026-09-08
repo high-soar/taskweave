@@ -1,44 +1,56 @@
-# dev-template
+# Taskweave
 
-開発環境テンプレ
+コーディングエージェント向けのスケジュール調整ツールです。
 
-## はじめに
+現在は、実装に入る前の要件整理とツール選定を行っている段階です。スケジュール計算機能や YAML の原本形式は、まだ実装・確定していません。
 
-VS Code でこのリポジトリを開き、`Dev Containers: Reopen in Container` を実行します。開発コンテナーには Node.js 24、npm、GitHub CLI、GitHub Copilot CLI、`uv`、`ripgrep` を含みます。
+## 目的
+
+メンバの稼働割合、スキル、タスクの見積工数、依存関係、工程ごとの期限をもとに、チーム全体のスケジュール案を作成できるようにします。
+
+Excel で手作業による調整を行う場合、タスクの順番や見積工数を変更したときに、後続タスクの開始日・終了日を連鎖的に修正する必要があります。また、メンバごとの一日の稼働上限を守りながら、プロジェクトや工程の期限を満たす調整も難しくなります。
+
+Taskweave では、これらの条件をテキストベースの原本として管理し、コーディングエージェントが変更内容を解釈して再計画できる形を目指します。
+
+## 現在検討している方針
+
+- メンバやタスクなどの原本は YAML で管理する
+- メンバごとの稼働割合を、プロジェクトに使える一日の容量として扱う
+- タスクごとに見積工数、必要スキル、依存関係、期限を持たせる
+- 実績を原本に追加し、指定した時点以降の未来だけを再計画する
+- 休暇、見積工数の変更、作業範囲の変更をシナリオとして扱えるようにする
+- 初期の計画単位は日、工数の単位は時間とする案を検討している
+- 初期段階では、1つのタスクを同時に担当するメンバは1人とする案を検討している
+- 必須スキルや期限は制約、得意・不得意や担当希望は優先度として扱う案を検討している
+
+計算エンジンには Python と OR-Tools、Python の依存関係管理には `uv` を使う構成を候補にしています。ただし、実装方式やデータモデルは今後の検討で変更する可能性があります。
+
+## 想定している利用例
+
+- メンバが急遽一週間休むため、残りのスケジュールを引き直す
+- 作業範囲が変わって見積工数が増えたため、後続の予定を見直す
+- タスクの実施順を変更したため、工程全体を再計画する
+- 作業実績を反映し、現在時点から先の計画だけを更新する
+
+## まだ決めていないこと
+
+- 原本 YAML の具体的なファイル分割とスキーマ
+- 複数メンバで一つのタスクを担当する場合の表現
+- 日単位より細かい計画が必要になった場合の扱い
+- 日本の祝日やチーム固有の稼働日の管理方法
+- 期限を守れない場合の診断結果と代替案の提示方法
+- エージェントから計画を変更・検証・出力する CLI の形
+- 生成した計画と原本をどのようにレビューするか
+
+## 開発環境
+
+VS Code でこのリポジトリを開き、`Dev Containers: Reopen in Container` を実行します。開発コンテナーには Node.js 24、npm、GitHub CLI、GitHub Copilot CLI、`uv`、`ripgrep` が含まれます。
 
 初回起動時に `@github/copilot` は自動でグローバルインストールされます。Copilot CLI の履歴、Copilot Chat の履歴、Google Antigravity の履歴は Docker ボリュームに永続化されます。
 
-## テンプレートから新しいリポジトリを作る
+現時点では、アプリケーションの Python 依存関係や計算エンジンはまだ導入していません。
 
-### GitHub の画面から作る
-
-1. [dev-template](https://github.com/high-soar/dev-template) を開きます。
-2. **Use this template** → **Create a new repository** を選択します。
-3. 新しいリポジトリの所有者、名前、公開範囲を設定して作成します。
-4. 作成したリポジトリを clone します。
-
-```sh
-git clone https://github.com/<owner>/<new-repository>.git
-cd <new-repository>
-code .
-```
-
-5. VS Code で `Dev Containers: Reopen in Container` を実行します。
-
-### GitHub CLI から作る
-
-GitHub CLI にログイン済みの場合は、次のコマンドでも作成できます。
-
-```sh
-gh repo create <owner>/<new-repository> \
-	--template high-soar/dev-template \
-	--private \
-	--clone
-```
-
-公開リポジトリにする場合は `--private` を `--public` に変更します。作成後は生成されたディレクトリで `code .` を実行し、Dev Container を起動します。
-
-## 日常の確認
+## 開発時の確認
 
 依存関係を導入します。
 
@@ -46,7 +58,7 @@ gh repo create <owner>/<new-repository> \
 npm install
 ```
 
-コミット前またはプルリクエスト前に、次の品質チェックを実行します。
+現在の開発基盤に対する品質チェックは次のとおりです。
 
 ```sh
 npm run format:check
@@ -63,7 +75,7 @@ npm run format
 
 ## Git フック
 
-`npm install` または `npm ci` を実行すると、リポジトリ管理下の [`.githooks/pre-push`](.githooks/pre-push) がこの clone の Git 設定に登録されます。以降の `git push` では、push 前に `npm run lint` が実行されます。
+`npm install` または `npm ci` を実行すると、リポジトリ管理下の [`.githooks/pre-push`](.githooks/pre-push) がこの clone の Git 設定に登録されます。以降の `git push` では、整形チェック、Lint、テスト、型チェックが実行されます。
 
 既存の clone で再設定する場合は次を実行します。
 
@@ -73,11 +85,8 @@ npm run prepare
 
 プルリクエストと `main` への push では、同じチェックが GitHub Actions により実行されます。
 
-## テンプレート利用時の作業
+## AI 向け設定
 
-1. `package.json` の `name`、`description`、`version` をプロジェクトに合わせて変更します。
-2. アプリケーションの依存関係とソースコードを追加します。
-3. TypeScript を使う場合は、プロジェクトに必要な `tsconfig.json` を追加します。型検査は設定ファイルを優先し、未作成の場合はリポジトリ中の TypeScript ファイルを検査します。
-4. 必要な環境変数を `.env.example` に記載し、実値を Git に追加しないようにします。
+共通の AI 向けルールは [AGENTS.md](AGENTS.md) が正本です。GitHub Copilot と Google Antigravity の設定は、そこから参照する構成にしています。
 
-共通の AI 向けルールは [AGENTS.md](AGENTS.md) が正本です。Copilot と Google Antigravity の設定は、そこから参照する構成にしています。
+実装を開始した後、確定したデータモデル、CLI、計算方式、運用手順をこの README に反映します。
