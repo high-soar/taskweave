@@ -32,20 +32,28 @@ This skill guides AI agents and developers in applying **Spec-Driven Development
    - Confirm Acceptance Criteria (testable scenarios) are listed.
    - Track progress using the Tasklist (`- [ ]`) in the story Issue.
 
-### Phase 1: Specification (SDD)
+### Phase 1: Specification (SDD & OKF)
 
 1. **Check Existing Specs**: Inspect [`specs/`](../../../specs/) to see if an existing specification covers the target change.
-2. **Draft or Update Spec**:
-   - If introducing a new feature, copy [`specs/templates/spec-template.md`](../../../specs/templates/spec-template.md) to `specs/<number>-<slug>.md` with status `Draft` or `Under Review`.
-   - Link the spec to the User Story Issue (`関連 Issue: #<id>`).
+2. **Consult OKF Skill**:
+   - Always load and follow the **`okf`** skill ([`../okf/SKILL.md`](../okf/SKILL.md)) for YAML frontmatter rules, actor conventions, and progressive disclosure.
+3. **Draft or Update Spec**:
+   - Copy [`specs/templates/spec-template.md`](../../../specs/templates/spec-template.md) to `specs/<number>-<slug>.md`.
+   - Set OKF frontmatter:
+     - `type: spec`
+     - `status: draft`
+     - `issue: <issue_number>`
+     - `generated: { by: <agent_actor>, at: <ISO_8601_UTC> }`
    - Clearly document:
      - User story, Functional & Non-Functional Requirements.
      - Data structures & YAML schemas (Schema-Driven).
      - Concrete Acceptance Criteria (Given-When-Then scenarios).
      - Constraints and explicit Out-of-Scope boundaries.
-3. **User Alignment & Approval**:
+4. **User Alignment & Approval**:
    - Review the spec with the user.
-   - Once agreed, update the specification status to `Accepted`.
+   - Once agreed, update the specification:
+     - `status: accepted`
+     - `verified: { by: human:<user_id>, at: <ISO_8601_UTC> }` (記録して人間の承認を明示)
 
 ### Phase 2: Test First (TDD - Red)
 

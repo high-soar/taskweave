@@ -3,6 +3,7 @@
 このディレクトリは、Taskweave の機能要件、原本 YAML スキーマ、計算制約、CLI インターフェースなどの仕様（Specification）を管理する正本（SSOT）です。
 
 開発は **SDD（仕様駆動開発 / Spec-Driven Development）** に基づき、コードやテストを書く前に仕様書を作成・合意します。
+すべての仕様書は **Open Knowledge Format (OKF v0.2)** に準拠し、YAML フロントマターによるメタデータ管理・アクター記録・トラストティア判定を行います（詳細は [okf スキル](../.github/skills/okf/SKILL.md) を参照）。
 
 ---
 

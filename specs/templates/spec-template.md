@@ -1,14 +1,15 @@
-# [仕様書タイトル]
-
-| 項目           | 内容                                                                  |
-| :------------- | :-------------------------------------------------------------------- |
-| **ステータス** | `Draft` / `Under Review` / `Accepted` / `Implemented` / `Superseded`  |
-| **関連 Issue** | [#番号 または URL](https://github.com/high-soar/taskweave/issues/...) |
-| **作成日**     | YYYY-MM-DD                                                            |
-| **更新日**     | YYYY-MM-DD                                                            |
-| **作成者**     | [名前またはエージェント名]                                            |
-
 ---
+type: spec
+title: "[仕様書タイトル]"
+description: "[この仕様の目的と概要を1行で要約]"
+tags: [spec, milestone-1]
+status: draft # draft | under-review | accepted | implemented | superseded
+issue: 1 # 関連する GitHub Issue 番号
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-08T16:00:00Z }
+# verified: { by: human:high-soar, at: 2026-09-08T16:30:00Z } # 人間によるレビュー・合意時に追記
+---
+
+# [仕様書タイトル]
 
 ## 1. 概要とユーザーストーリー
 
