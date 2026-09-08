@@ -1,0 +1,13 @@
+members:
+  - id: alice
+    name: "Alice"
+    max_capacity: 1.0
+    skills:
+      - frontend
+      - backend
+  - id: bob
+    name: "Bob"
+    max_capacity: 0.8
+    skills:
+      - backend
+      - devops
