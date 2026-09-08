@@ -44,3 +44,7 @@ To avoid duplication across AI assistants, this repository follows a unified con
 - **Validation**: Add focused tests for scheduling constraints and replanning behavior when the implementation begins. Changes to source-file formats require validation and documentation updates.
 - **Git Commits**: Use descriptive commit messages following Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`).
 - **Configuration Maintenance**: When modifying or adding configurations (`.devcontainer/`, `.agents/`, `.github/`, `AGENTS.md`), always consult the **`repo-config-management`** skill.
+
+## 4. Pull Request Review & Comment Rules
+
+PR レビューコメントの人向け運用ルールは、[README.md の該当節](README.md#3-プルリクエストのレビューコメント)を正本とします。レビューやコメントを扱うときは、その手順を読み、ここに別の重複ルールを作らないでください。
