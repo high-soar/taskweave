@@ -42,6 +42,27 @@ Taskweave では、これらの条件をテキストベースの原本として�
 - エージェントから計画を変更・検証・出力する CLI の形
 - 生成した計画と原本をどのようにレビューするか
 
+## 開発プロセス
+
+Taskweave では、コーディングエージェントとの協調開発と品質担保のため、**スクラム流の目標・ストーリー管理**と **SDD & TDD** を統合した開発標準を採用しています。
+
+### 1. 全体目標とユーザーストーリー (Why & What)
+
+- **ロードマップ**: 全体方針とマイルストーンは [`ROADMAP.md`](ROADMAP.md) および GitHub Milestones で可視化します。
+- **ユーザーストーリー**: 実現したい価値や機能は、[Issue テンプレート](.github/ISSUE_TEMPLATE/user_story.yml) を使用して GitHub Issues (`user-story` ラベル) として起票します。
+- **タスク管理**: ストーリーを達成するための作業項目は、Issue 本文内の Tasklist（`- [ ]`）で管理し、Issue の過度な乱立を防ぎます。
+- **DoR (準備完了の定義)**: 実装着手前に、ストーリーの目的（Who/What/Why）、受入基準（Acceptance Criteria）、および必要な仕様（[`specs/`](specs/)）が合意されていることを確認します。
+
+### 2. 仕様策定とテスト駆動開発 (How: SDD & TDD)
+
+1. **Spec（仕様策定・合意 - SDD）**: 詳細な原本 YAML スキーマや計算制約は [`specs/`](specs/) 配下に仕様書を作成して合意します。
+2. **Test（テスト先行 - TDD Red）**: 仕様書の受入基準に基づき、失敗するテストを作成します。
+3. **Code（最小実装 - TDD Green）**: テストを通過させるための最小限の実装を行います（YAGNI 原則の遵守）。
+4. **Refactor（品質改善 - TDD Refactor）**: テストが通過する状態を維持しながら、コードの品質・構造を整理します。
+5. **DoD (完了の定義)**: 全受入基準のテスト通過、品質チェック全通過、仕様・ドキュメント更新を確認し、PR 概要に `Closes #<Issue番号>` を記載してマージ・クローズします。
+
+現行の開発基盤では `node --test` によるテストを実施し、今後の計算エンジン（Python）導入時は `pytest` を用いてテスト駆動開発を行います。
+
 ## 開発環境
 
 VS Code でこのリポジトリを開き、`Dev Containers: Reopen in Container` を実行します。開発コンテナーには Node.js 24、npm、GitHub CLI、GitHub Copilot CLI、`uv`、`ripgrep` が含まれます。

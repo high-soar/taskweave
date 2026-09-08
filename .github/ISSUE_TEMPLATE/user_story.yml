@@ -1,0 +1,80 @@
+name: ユーザーストーリー (User Story)
+description: スクラムのユーザーストーリーとタスクを起票します
+title: "[Story]: "
+labels: ["user-story"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Taskweave の機能や変更をユーザーストーリーとして定義します。
+        受入基準（Acceptance Criteria）と DoR を満たしてから実装に着手してください。
+  - type: textarea
+    id: story
+    attributes:
+      label: ユーザーストーリー (User Story)
+      description: 誰が、何を、なぜ達成したいのかを記述します。
+      placeholder: |
+        - **As a** (対象/ロール): [例: コーディングエージェント]
+        - **I want** (実現したいこと): [例: メンバの稼働上限を考慮したスケジュール案を自動生成したい]
+        - **So that** (得られる価値/理由): [例: 期限内に無理のない計画を立案・提案できるため]
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: 受入基準 (Acceptance Criteria)
+      description: 完了したとみなすための検証可能な条件（シナリオ）を記述します。TDD のテストケースに直結します。
+      placeholder: |
+        - [ ] シナリオ 1: メンバの1日稼働上限（8時間）を超えるタスク割り当てが発生しないこと
+        - [ ] シナリオ 2: 必須スキルを持たないメンバにタスクが割り当てられないこと
+    validations:
+      required: true
+  - type: input
+    id: spec-link
+    attributes:
+      label: "関連仕様書 (Spec Link)"
+      description: "対応する specs/ 配下の仕様書へのパスがあれば記載してください（例: specs/001-yaml-schema.md）。"
+      placeholder: "specs/..."
+    validations:
+      required: false
+  - type: checkboxes
+    id: dor
+    attributes:
+      label: "準備完了の定義 (Definition of Ready: DoR)"
+      description: 実装に着手する前に確認する項目です。
+      options:
+        - label: ユーザーストーリーの目的・価値（Who/What/Why）が明確である
+          required: true
+        - label: 受入基準（Acceptance Criteria）がテスト可能な形で定義されている
+          required: true
+        - label: 関連する仕様書（specs/）が合意（Accepted）されている（または本 Issue 内で合意済み）
+          required: true
+        - label: 依存関係や制約条件が特定されている
+          required: false
+  - type: textarea
+    id: tasks
+    attributes:
+      label: タスクリスト (Tasks)
+      description: 本ストーリーを完了させるための具体的な作業項目（Tasklist）を記述します。
+      value: |
+        - [ ] テスト先行作成 (TDD Red)
+        - [ ] 最小実装 (TDD Green)
+        - [ ] リファクタリング (TDD Refactor)
+        - [ ] 品質ゲート通過 (Format, Lint, Test, Typecheck)
+        - [ ] 仕様書・ドキュメント更新
+    validations:
+      required: false
+  - type: checkboxes
+    id: dod
+    attributes:
+      label: "完了の定義 (Definition of Done: DoD)"
+      description: 本 Issue をクローズする前に確認する項目です。
+      options:
+        - label: すべての受入基準を満たすテストが作成され、通過している (TDD Green)
+          required: true
+        - label: すべての品質チェック（npm run format:check, lint, test, typecheck）を通過している
+          required: true
+        - label: 不要な推測コードや過剰設計がない（Ponytail / YAGNI 原則遵守）
+          required: true
+        - label: 仕様書のステータスが更新され、必要なドキュメントが更新されている
+          required: true
