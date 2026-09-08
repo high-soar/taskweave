@@ -32,15 +32,15 @@ Taskweave では、これらの条件をテキストベースの原本として�
 - タスクの実施順を変更したため、工程全体を再計画する
 - 作業実績を反映し、現在時点から先の計画だけを更新する
 
-## まだ決めていないこと
+## 未確定事項とマイルストーン対応
 
-- 原本 YAML の具体的なファイル分割とスキーマ
-- 複数メンバで一つのタスクを担当する場合の表現
-- 日単位より細かい計画が必要になった場合の扱い
-- 日本の祝日やチーム固有の稼働日の管理方法
-- 期限を守れない場合の診断結果と代替案の提示方法
-- エージェントから計画を変更・検証・出力する CLI の形
-- 生成した計画と原本をどのようにレビューするか
+各設計課題や未確定事項は、[`ROADMAP.md`](ROADMAP.md) の各マイルストーンおよび将来バックログに整理して順次確定・実装を進めます。
+
+- **原本 YAML のファイル分割とスキーマ定義**: [Milestone 1](ROADMAP.md#milestone-1-原本-yaml-スキーマ--検証ツール-data-schema--validation) で確定
+- **日本の祝日やチーム固有の稼働日（カレンダー原本）の扱い**: [Milestone 1](ROADMAP.md#milestone-1-原本-yaml-スキーマ--検証ツール-data-schema--validation) および [Milestone 2](ROADMAP.md#milestone-2-計算エンジン-mvp-scheduling-engine-mvp) で確定
+- **期限を守れない場合の診断結果と代替案の提示方法**: [Milestone 2](ROADMAP.md#milestone-2-計算エンジン-mvp-scheduling-engine-mvp) で確定
+- **エージェント向け CLI の体系と計画のレビュー・確定手順**: [Milestone 4](ROADMAP.md#milestone-4-エージェント向け-cli--レポーティング-agent-cli--reporting) で確定
+- **複数メンバでのタスク担当・日単位より細かい計画**: 初期 MVP ではスコープ外（YAGNI 原則）とし、[将来の検討事項](ROADMAP.md#将来の検討事項初期スコープ外--yagni) として整理
 
 ## 開発プロセス
 
