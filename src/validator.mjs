@@ -24,8 +24,17 @@ function isValidDate(str) {
 }
 
 function parseYaml(yamlString, errors) {
+  if (typeof yamlString !== "string" || yamlString.trim() === "") {
+    errors.push("YAML ドキュメントが空です");
+    return null;
+  }
   try {
-    return yaml.parse(yamlString);
+    const parsed = yaml.parse(yamlString);
+    if (parsed === null || parsed === undefined) {
+      errors.push("YAML にデータが含まれていません");
+      return null;
+    }
+    return parsed;
   } catch (err) {
     errors.push(`YAML 構文エラー: ${err.message}`);
     return null;
@@ -49,7 +58,7 @@ export function validateMembers(yamlString) {
     const m = parsed.members[i];
     const prefix = `members[${i}]`;
 
-    if (!m || typeof m !== "object") {
+    if (!m || typeof m !== "object" || Array.isArray(m)) {
       errors.push(`${prefix}: オブジェクトである必要があります`);
       continue;
     }
@@ -66,20 +75,34 @@ export function validateMembers(yamlString) {
       errors.push(`${prefix}.name: 必須の文字列です`);
     }
 
-    const maxCapacity = m.max_capacity ?? 1.0;
-    if (
-      typeof maxCapacity !== "number" ||
-      maxCapacity <= 0 ||
-      maxCapacity > 1.0
-    ) {
-      errors.push(
-        `${prefix}.max_capacity: 0.0 超 1.0 以下の数値である必要があります (指定値: ${maxCapacity})`,
-      );
+    let maxCapacity = 1.0;
+    if (m.max_capacity !== undefined) {
+      if (
+        typeof m.max_capacity !== "number" ||
+        !Number.isFinite(m.max_capacity) ||
+        m.max_capacity <= 0 ||
+        m.max_capacity > 1.0
+      ) {
+        errors.push(
+          `${prefix}.max_capacity: 0.0 超 1.0 以下の有限な数値である必要があります (指定値: ${m.max_capacity})`,
+        );
+      } else {
+        maxCapacity = m.max_capacity;
+      }
     }
 
-    const skills = m.skills ?? [];
-    if (!Array.isArray(skills) || skills.some((s) => typeof s !== "string")) {
-      errors.push(`${prefix}.skills: 文字列の配列である必要があります`);
+    let skills = [];
+    if (m.skills !== undefined) {
+      if (
+        !Array.isArray(m.skills) ||
+        skills.some((s) => typeof s !== "string")
+      ) {
+        errors.push(`${prefix}.skills: 文字列の配列である必要があります`);
+      } else if (m.skills.some((s) => typeof s !== "string")) {
+        errors.push(`${prefix}.skills: 文字列の配列である必要があります`);
+      } else {
+        skills = m.skills;
+      }
     }
 
     members.push({
@@ -110,7 +133,7 @@ export function validateTasks(yamlString) {
     const t = parsed.tasks[i];
     const prefix = `tasks[${i}]`;
 
-    if (!t || typeof t !== "object") {
+    if (!t || typeof t !== "object" || Array.isArray(t)) {
       errors.push(`${prefix}: オブジェクトである必要があります`);
       continue;
     }
@@ -127,35 +150,50 @@ export function validateTasks(yamlString) {
       errors.push(`${prefix}.title: 必須の文字列です`);
     }
 
-    if (typeof t.estimate_hours !== "number" || t.estimate_hours <= 0) {
+    if (
+      typeof t.estimate_hours !== "number" ||
+      !Number.isFinite(t.estimate_hours) ||
+      t.estimate_hours <= 0
+    ) {
       errors.push(
-        `${prefix}.estimate_hours: 0 より大きい正の数値である必要があります`,
+        `${prefix}.estimate_hours: 0 より大きい有限な正の数値である必要があります`,
       );
     }
 
-    const requiredSkills = t.required_skills ?? [];
-    if (
-      !Array.isArray(requiredSkills) ||
-      requiredSkills.some((s) => typeof s !== "string")
-    ) {
-      errors.push(
-        `${prefix}.required_skills: 文字列の配列である必要があります`,
-      );
+    let requiredSkills = [];
+    if (t.required_skills !== undefined) {
+      if (
+        !Array.isArray(t.required_skills) ||
+        t.required_skills.some((s) => typeof s !== "string")
+      ) {
+        errors.push(
+          `${prefix}.required_skills: 文字列の配列である必要があります`,
+        );
+      } else {
+        requiredSkills = t.required_skills;
+      }
     }
 
-    const dependsOn = t.depends_on ?? [];
-    if (
-      !Array.isArray(dependsOn) ||
-      dependsOn.some((d) => typeof d !== "string")
-    ) {
-      errors.push(`${prefix}.depends_on: 文字列の配列である必要があります`);
+    let dependsOn = [];
+    if (t.depends_on !== undefined) {
+      if (
+        !Array.isArray(t.depends_on) ||
+        t.depends_on.some((d) => typeof d !== "string")
+      ) {
+        errors.push(`${prefix}.depends_on: 文字列の配列である必要があります`);
+      } else {
+        dependsOn = t.depends_on;
+      }
     }
 
+    let deadline = null;
     if (t.deadline !== undefined && t.deadline !== null) {
       if (!isValidDate(t.deadline)) {
         errors.push(
           `${prefix}.deadline: 有効な YYYY-MM-DD 形式の日付である必要があります (指定値: ${t.deadline})`,
         );
+      } else {
+        deadline = t.deadline;
       }
     }
 
@@ -165,7 +203,7 @@ export function validateTasks(yamlString) {
       estimate_hours: t.estimate_hours,
       required_skills: requiredSkills,
       depends_on: dependsOn,
-      deadline: t.deadline ?? null,
+      deadline,
     });
   }
 
@@ -178,42 +216,55 @@ export function validateCalendar(yamlString) {
   if (!parsed) return { valid: false, errors, data: null };
 
   const cal = parsed.calendar;
-  if (!cal || typeof cal !== "object") {
+  if (!cal || typeof cal !== "object" || Array.isArray(cal)) {
     errors.push("calendar: オブジェクトが必須です");
     return { valid: false, errors, data: null };
   }
 
-  const workdays = cal.workdays ?? ["mon", "tue", "wed", "thu", "fri"];
-  if (
-    !Array.isArray(workdays) ||
-    workdays.some((w) => !VALID_WORKDAYS.has(w))
-  ) {
-    errors.push(
-      "calendar.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります",
-    );
+  let workdays = ["mon", "tue", "wed", "thu", "fri"];
+  if (cal.workdays !== undefined) {
+    if (
+      !Array.isArray(cal.workdays) ||
+      cal.workdays.some((w) => !VALID_WORKDAYS.has(w))
+    ) {
+      errors.push(
+        "calendar.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります",
+      );
+    } else {
+      workdays = cal.workdays;
+    }
   }
 
-  const rawHolidays = cal.holidays ?? [];
-  const holidays = [];
-  if (!Array.isArray(rawHolidays)) {
-    errors.push("calendar.holidays: 配列である必要があります");
-  } else {
-    for (let i = 0; i < rawHolidays.length; i++) {
-      const h = rawHolidays[i];
-      const prefix = `calendar.holidays[${i}]`;
-      if (!h || typeof h !== "object") {
-        errors.push(`${prefix}: オブジェクトである必要があります`);
-        continue;
+  let holidays = [];
+  if (cal.holidays !== undefined) {
+    if (!Array.isArray(cal.holidays)) {
+      errors.push("calendar.holidays: 配列である必要があります");
+    } else {
+      for (let i = 0; i < cal.holidays.length; i++) {
+        const h = cal.holidays[i];
+        const prefix = `calendar.holidays[${i}]`;
+        if (!h || typeof h !== "object" || Array.isArray(h)) {
+          errors.push(`${prefix}: オブジェクトである必要があります`);
+          continue;
+        }
+        if (!h.date || !isValidDate(h.date)) {
+          errors.push(
+            `${prefix}.date: 有効な YYYY-MM-DD 形式の日付である必要があります (指定値: ${h?.date})`,
+          );
+        }
+        let name = "";
+        if (h.name !== undefined) {
+          if (typeof h.name !== "string") {
+            errors.push(`${prefix}.name: 文字列である必要があります`);
+          } else {
+            name = h.name;
+          }
+        }
+        holidays.push({
+          date: h.date,
+          name,
+        });
       }
-      if (!h.date || !isValidDate(h.date)) {
-        errors.push(
-          `${prefix}.date: 有効な YYYY-MM-DD 形式の日付である必要があります (指定値: ${h?.date})`,
-        );
-      }
-      holidays.push({
-        date: h.date,
-        name: typeof h.name === "string" ? h.name : "",
-      });
     }
   }
 
@@ -226,6 +277,7 @@ export function validateCalendar(yamlString) {
 
 export async function validateProjectData(dirPath) {
   const errors = [];
+  let allValid = true;
   let members = null;
   let tasks = null;
   let calendar = null;
@@ -233,32 +285,44 @@ export async function validateProjectData(dirPath) {
   try {
     const content = await readFile(join(dirPath, "members.yaml"), "utf-8");
     const res = validateMembers(content);
-    if (!res.valid) errors.push(...res.errors);
+    if (!res.valid) {
+      allValid = false;
+      errors.push(...res.errors);
+    }
     members = res.data;
   } catch (err) {
+    allValid = false;
     errors.push(`members.yaml 読み込み失敗: ${err.message}`);
   }
 
   try {
     const content = await readFile(join(dirPath, "tasks.yaml"), "utf-8");
     const res = validateTasks(content);
-    if (!res.valid) errors.push(...res.errors);
+    if (!res.valid) {
+      allValid = false;
+      errors.push(...res.errors);
+    }
     tasks = res.data;
   } catch (err) {
+    allValid = false;
     errors.push(`tasks.yaml 読み込み失敗: ${err.message}`);
   }
 
   try {
     const content = await readFile(join(dirPath, "calendar.yaml"), "utf-8");
     const res = validateCalendar(content);
-    if (!res.valid) errors.push(...res.errors);
+    if (!res.valid) {
+      allValid = false;
+      errors.push(...res.errors);
+    }
     calendar = res.data;
   } catch (err) {
+    allValid = false;
     errors.push(`calendar.yaml 読み込み失敗: ${err.message}`);
   }
 
   return {
-    valid: errors.length === 0,
+    valid: allValid && errors.length === 0,
     errors,
     members,
     tasks,
