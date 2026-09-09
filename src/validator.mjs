@@ -44,7 +44,7 @@ function parseYaml(yamlString, errors) {
 export function validateMembers(yamlString) {
   const errors = [];
   const parsed = parseYaml(yamlString, errors);
-  if (!parsed) return { valid: false, errors, data: [] };
+  if (parsed === null) return { valid: false, errors, data: [] };
 
   if (!parsed.members || !Array.isArray(parsed.members)) {
     errors.push("members: 配列が必須です");
@@ -119,7 +119,7 @@ export function validateMembers(yamlString) {
 export function validateTasks(yamlString) {
   const errors = [];
   const parsed = parseYaml(yamlString, errors);
-  if (!parsed) return { valid: false, errors, data: [] };
+  if (parsed === null) return { valid: false, errors, data: [] };
 
   if (!parsed.tasks || !Array.isArray(parsed.tasks)) {
     errors.push("tasks: 配列が必須です");
@@ -213,7 +213,7 @@ export function validateTasks(yamlString) {
 export function validateCalendar(yamlString) {
   const errors = [];
   const parsed = parseYaml(yamlString, errors);
-  if (!parsed) return { valid: false, errors, data: null };
+  if (parsed === null) return { valid: false, errors, data: null };
 
   const cal = parsed.calendar;
   if (!cal || typeof cal !== "object" || Array.isArray(cal)) {

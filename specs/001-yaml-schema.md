@@ -4,8 +4,8 @@ title: 原本 YAML スキーマ定義
 description: メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 tags: [schema, yaml, milestone-1]
 status: implemented
-issues: [1, 2]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-09T12:01:00Z }
+issues: [1, 2, 3]
+generated: { by: copilot/chat, at: 2026-09-09T13:11:25Z }
 verified: { by: human:high-soar, at: 2026-09-09T12:01:00Z }
 ---
 
@@ -36,12 +36,15 @@ verified: { by: human:high-soar, at: 2026-09-09T12:01:00Z }
   - タスクを一意に識別する `id`、タイトル `title`、見積工数（時間）`estimate_hours`、必要スキル `required_skills`、先行タスク ID 一覧 `depends_on`、完了期限 `deadline` を定義できること。
 - **FR-4 (カレンダー定義)**:
   - 週の標準稼働曜日 `workdays`、個別非稼働日 `holidays`（日付 `date`、名称 `name`）を定義できること。
+- **FR-5 (検証 CLI)**:
+  - 指定ディレクトリの `members.yaml`、`tasks.yaml`、`calendar.yaml` を一括検証し、結果に応じた終了コードを返せること。
 
 ### 2.2 非機能要件 (NFR: Non-Functional Requirements)
 
 - **NFR-1 (可読性と編集容易性)**: 人間および AI エージェントが直感的に読み書きできる標準的な YAML 形式であること。
 - **NFR-2 (厳格な型・制約)**: 必須フィールドの欠落や型不正（工数の負数指定や日付形式の誤りなど）が静的に検知可能であること。
 - **NFR-3 (YAGNI 原則)**: 初期 MVP では過度な入れ子構造や不要なメタデータを避け、最小限のフィールド構成とすること。
+- **NFR-4 (診断可能性)**: CLI の検証エラーにはファイル名、行番号、該当キーを含めること。
 
 ---
 
@@ -188,6 +191,26 @@ calendar:
   - スキーマバリデータで検証を実行する。
 - **期待結果 (Then)**:
   - 検証が失敗し、許容範囲外・重複・形式不正である旨のエラーが報告されること。
+
+### シナリオ 4: CLI からの一括検証
+
+- **前提 (Given)**:
+  - 指定ディレクトリに `members.yaml`、`tasks.yaml`、`calendar.yaml` が存在する。
+- **操作 (When)**:
+  - `npm run validate -- <directory>` を実行する。
+- **期待結果 (Then)**:
+  - すべてのファイルが有効な場合は終了コード `0` と成功メッセージを返すこと。
+  - 検証エラーがある場合は終了コード `1` を返し、`<file>:<line>: <message>` 形式でファイル名、行番号、キー名を含む診断を標準エラー出力へ返すこと。
+
+## 7. 検証 CLI
+
+検証 CLI は次の形式で実行します。
+
+```sh
+npm run validate -- [directory]
+```
+
+`directory` の省略時は `data/` を対象とします。指定ディレクトリにある 3 つの原本 YAML をすべて検証し、すべて有効なら終了コード `0`、1 つでも読み込みまたは検証に失敗したら終了コード `1` を返します。診断は `<file>:<line>: <message>` 形式で標準エラー出力へ出力します。
 
 ---
 

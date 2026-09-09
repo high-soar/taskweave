@@ -96,6 +96,7 @@ npm run format:check
 npm run lint
 npm test
 npm run typecheck
+npm run validate -- examples/basic
 ```
 
 整形が必要な場合は次を実行します。
