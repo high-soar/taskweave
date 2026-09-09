@@ -73,6 +73,16 @@ Taskweave では、コーディングエージェントとの協調開発と品�
 - **履歴を一貫させる**: 関連する指摘は 1 件のレビューコメントにまとめ、断片的な結論を連続投稿しません。修正後は同じ流れでコミットまたは変更内容と検証結果を返信し、更新された PR を再確認してから解決済みとします。
 - **無関係な状態を混ぜない**: PR のリビジョンで再現しないローカル限定の失敗、既存の作業ツリー変更、環境問題は、PR の問題として報告しません。
 
+### 4. Git ブランチ運用
+
+この節を、Issue 対応時の Git ブランチ運用に関する人向け手順の正本とします。エージェント向けの参照ルールは `AGENTS.md` に置き、手順本文を重複させません。
+
+- **作業開始前に確認する**: `git fetch origin` の後、`git branch --show-current`、`git log --oneline origin/main..HEAD`、`git diff --name-status origin/main...HEAD` で現在のブランチと未整理の差分を確認します。別の Issue 用ブランチにいる、または意図しない差分がある場合は、編集を始めずに切り分けます。
+- **`origin/main` から作成する**: Issue 対応は 1 Issue / 1 PR / 1 作業ブランチとし、`origin/main` を起点に `feature/issue-<number>-<slug>` または `fix/issue-<number>-<slug>` を作成します。Issue に紐づかないリポジトリ設定・文書などの保守作業は `chore/<slug>` を使います。別の Issue 用ブランチを再利用せず、`feat/` と `feature/` を混在させません。
+- **`main` へ直接作業・push しない**: 実装とコミットは作業ブランチで行い、レビュー修正も同じ PR ブランチへ追加します。
+- **PR 前に起点を再確認する**: 現在のブランチ名と `origin/main...HEAD` の差分を確認し、無関係なコミットやファイルが含まれていないことを確認してから commit、push、PR 作成を行います。
+- **マージ後に整理する**: PR がマージされたら `main` を更新し、不要になったローカルおよびリモートの作業ブランチを削除します。
+
 ## 開発環境
 
 VS Code でこのリポジトリを開き、`Dev Containers: Reopen in Container` を実行します。開発コンテナーには Node.js 24、npm、GitHub CLI、GitHub Copilot CLI、`uv`、`ripgrep` が含まれます。

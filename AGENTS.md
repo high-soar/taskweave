@@ -48,3 +48,5 @@ To avoid duplication across AI assistants, this repository follows a unified con
 ## 4. Pull Request Review & Comment Rules
 
 PR レビューコメントの人向け運用ルールは、[README.md の該当節](README.md#3-プルリクエストのレビューコメント)を正本とします。レビューやコメントを扱うときは、その手順を読み、ここに別の重複ルールを作らないでください。
+
+Git ブランチ運用の人向け手順は、[README.md の Git ブランチ運用節](README.md#4-git-ブランチ運用)を正本とします。Issue または保守作業の着手時は `origin/main` を起点に専用ブランチを用意し、既存の別 Issue 用ブランチを再利用しないでください。レビュー修正は同じ PR ブランチへ追加し、マージ後は作業ブランチを整理します。
