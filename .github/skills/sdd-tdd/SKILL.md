@@ -42,7 +42,7 @@ This skill guides AI agents and developers in applying **Spec-Driven Development
    - Set OKF frontmatter:
      - `type: spec`
      - `status: draft`
-     - `issue: <issue_number>`
+     - `issues: [<issue_number>, ...]` (または単一の場合 `issue: <issue_number>`)
      - `generated: { by: <agent_actor>, at: <ISO_8601_UTC> }`
    - Clearly document:
      - User story, Functional & Non-Functional Requirements.
