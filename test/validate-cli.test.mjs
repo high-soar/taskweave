@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { promisify } from "node:util";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -18,8 +19,34 @@ describe("validate CLI", () => {
     assert.match(result.stdout, /検証に成功/);
   });
 
+  it("ディレクトリ引数を省略すると data/ を検証すること", async () => {
+    const testDir = await mkdtemp(join(tmpdir(), "taskweave-validation-"));
+    const dataDir = join(testDir, "data");
+
+    try {
+      await mkdir(dataDir);
+      await Promise.all(
+        ["members.yaml", "tasks.yaml", "calendar.yaml"].map(
+          async (fileName) => {
+            const content = await readFile(join(BASIC_DIR, fileName), "utf-8");
+            await writeFile(join(dataDir, fileName), content);
+          },
+        ),
+      );
+
+      const result = await execFileAsync(process.execPath, [CLI_PATH], {
+        cwd: testDir,
+      });
+
+      assert.equal(result.stderr, "");
+      assert.match(result.stdout, /検証に成功/);
+    } finally {
+      await rm(testDir, { recursive: true, force: true });
+    }
+  });
+
   it("検証エラーにファイル名、行番号、キー名を含めること", async () => {
-    const testDir = await mkdtemp(join(ROOT_DIR, ".tmp-validation-"));
+    const testDir = await mkdtemp(join(tmpdir(), "taskweave-validation-"));
 
     try {
       await Promise.all(
@@ -47,7 +74,7 @@ describe("validate CLI", () => {
   });
 
   it("不正な型や負の工数をファイル名と行番号付きで報告すること", async () => {
-    const testDir = await mkdtemp(join(ROOT_DIR, ".tmp-validation-"));
+    const testDir = await mkdtemp(join(tmpdir(), "taskweave-validation-"));
 
     try {
       await Promise.all(
@@ -75,7 +102,7 @@ describe("validate CLI", () => {
   });
 
   it("ルート要素がスカラーの YAML を成功扱いしないこと", async () => {
-    const testDir = await mkdtemp(join(ROOT_DIR, ".tmp-validation-"));
+    const testDir = await mkdtemp(join(tmpdir(), "taskweave-validation-"));
 
     try {
       await writeFile(join(testDir, "members.yaml"), "false\n");
@@ -100,7 +127,7 @@ describe("validate CLI", () => {
   });
 
   it("構文エラーをファイル名と行番号付きで報告すること", async () => {
-    const testDir = await mkdtemp(join(ROOT_DIR, ".tmp-validation-"));
+    const testDir = await mkdtemp(join(tmpdir(), "taskweave-validation-"));
 
     try {
       await Promise.all(

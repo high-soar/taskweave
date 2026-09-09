@@ -30,16 +30,8 @@ function getNodeLine(document, path, lineCounter) {
   return null;
 }
 
-function getErrorLine(source, message) {
-  const lineCounter = new yaml.LineCounter();
-  let document;
-
-  try {
-    document = yaml.parseDocument(source, { lineCounter });
-  } catch {
-    return 1;
-  }
-
+function getErrorLine(document, lineCounter, message) {
+  if (!document) return 1;
   const pathLine = getNodeLine(document, getErrorPath(message), lineCounter);
   if (pathLine !== null) return pathLine;
 
@@ -63,10 +55,18 @@ async function validateDirectory(directory) {
     }
 
     const result = validate(source);
+    const lineCounter = new yaml.LineCounter();
+    let document;
+    try {
+      document = yaml.parseDocument(source, { lineCounter });
+    } catch {
+      document = null;
+    }
+
     if (!result.valid) hasErrors = true;
     for (const error of result.errors) {
       hasErrors = true;
-      const line = getErrorLine(source, error);
+      const line = getErrorLine(document, lineCounter, error);
       console.error(`${fileName}:${line}: ${error}`);
     }
   }
