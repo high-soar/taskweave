@@ -5,8 +5,7 @@ description: メンバ・タスク・制約・カレンダーの原本データ�
 tags: [schema, yaml, milestone-1]
 status: implemented
 issues: [1, 2, 3]
-generated: { by: copilot/chat, at: 2026-09-09T13:11:25Z }
-verified: { by: human:high-soar, at: 2026-09-09T12:01:00Z }
+generated: { by: copilot/chat, at: 2026-09-09T14:09:31Z }
 ---
 
 # 原本 YAML スキーマ定義 (001-yaml-schema)
@@ -202,18 +201,6 @@ calendar:
   - すべてのファイルが有効な場合は終了コード `0` と成功メッセージを返すこと。
   - 検証エラーがある場合は終了コード `1` を返し、`<file>:<line>: <message>` 形式でファイル名、行番号、キー名を含む診断を標準エラー出力へ返すこと。
 
-## 7. 検証 CLI
-
-検証 CLI は次の形式で実行します。
-
-```sh
-npm run validate -- [directory]
-```
-
-`directory` の省略時は `data/` を対象とします。指定ディレクトリにある 3 つの原本 YAML をすべて検証し、すべて有効なら終了コード `0`、1 つでも読み込みまたは検証に失敗したら終了コード `1` を返します。診断は `<file>:<line>: <message>` 形式で標準エラー出力へ出力します。
-
----
-
 ## 5. 制約事項・スコープ外 (Out of Scope)
 
 YAGNI 原則（不要な複雑性の排除）に基づき、以下の項目は本仕様（Issue #1 / M1 初期）のスコープ外とします。
@@ -234,3 +221,13 @@ YAGNI 原則（不要な複雑性の排除）に基づき、以下の項目は�
 - **単一ファイル（`taskweave.yaml`） vs 分割ファイル（`members.yaml`, `tasks.yaml`, `calendar.yaml`）**:
   - **採択**: 関心事ごとの分割ファイル。
   - **理由**: タスク一覧の追加・変更が最も頻繁に行われるのに対し、メンバ定義やカレンダーは更新頻度が低いため、Git 上でのコンフリクトを最小化し、エージェントが各ファイルを独立して編集・理解しやすくするため。
+
+  ## 7. 検証 CLI
+
+  検証 CLI は次の形式で実行します。
+
+  ```sh
+  npm run validate -- [directory]
+  ```
+
+  `directory` の省略時は `data/` を対象とします。指定ディレクトリにある 3 つの原本 YAML をすべて検証し、すべて有効なら終了コード `0`、1 つでも読み込みまたは検証に失敗したら終了コード `1` を返します。診断は `<file>:<line>: <message>` 形式で標準エラー出力へ出力します。
