@@ -231,11 +231,20 @@ export function validateCalendar(yamlString) {
         "calendar.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります",
       );
     } else {
+      const seenWorkdays = new Set();
+      for (const w of cal.workdays) {
+        if (seenWorkdays.has(w)) {
+          errors.push(`calendar.workdays: "${w}" は重複しています`);
+        } else {
+          seenWorkdays.add(w);
+        }
+      }
       workdays = cal.workdays;
     }
   }
 
   let holidays = [];
+  const seenDates = new Set();
   if (cal.holidays !== undefined) {
     if (!Array.isArray(cal.holidays)) {
       errors.push("calendar.holidays: 配列である必要があります");
@@ -251,6 +260,10 @@ export function validateCalendar(yamlString) {
           errors.push(
             `${prefix}.date: 有効な YYYY-MM-DD 形式の日付である必要があります (指定値: ${h?.date})`,
           );
+        } else if (seenDates.has(h.date)) {
+          errors.push(`${prefix}.date: "${h.date}" は重複しています`);
+        } else {
+          seenDates.add(h.date);
         }
         let name = "";
         if (h.name !== undefined) {

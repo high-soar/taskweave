@@ -4,9 +4,9 @@ title: 原本 YAML スキーマ定義
 description: メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 tags: [schema, yaml, milestone-1]
 status: implemented
-issue: 1
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-08T16:08:00Z }
-verified: { by: human:high-soar, at: 2026-09-08T16:10:00Z }
+issues: [1, 2]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-09T12:01:00Z }
+verified: { by: human:high-soar, at: 2026-09-09T12:01:00Z }
 ---
 
 # 原本 YAML スキーマ定義 (001-yaml-schema)
@@ -148,12 +148,12 @@ calendar:
 
 #### フィールド詳細 (`calendar`)
 
-| フィールド名      | 型             | 必須     | デフォルト                  | 説明・制約                                                                        |
-| :---------------- | :------------- | :------- | :-------------------------- | :-------------------------------------------------------------------------------- |
-| `workdays`        | list of string | 任意     | `[mon, tue, wed, thu, fri]` | 週の標準稼働日。値は `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` のいずれか。 |
-| `holidays`        | list of object | 任意     | `[]`                        | 個別の祝日・会社休日・特別休暇のリスト。                                          |
-| `holidays[].date` | string (date)  | **必須** | -                           | 非稼働日の日付。`YYYY-MM-DD` 形式（実在する日付であること）。                     |
-| `holidays[].name` | string         | 任意     | `""`                        | 祝日・休暇の名称。                                                                |
+| フィールド名      | 型             | 必須     | デフォルト                  | 説明・制約                                                                                  |
+| :---------------- | :------------- | :------- | :-------------------------- | :------------------------------------------------------------------------------------------ |
+| `workdays`        | list of string | 任意     | `[mon, tue, wed, thu, fri]` | 週の標準稼働日。値は `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` のいずれか。重複不可。 |
+| `holidays`        | list of object | 任意     | `[]`                        | 個別の祝日・会社休日・特別休暇のリスト。                                                    |
+| `holidays[].date` | string (date)  | **必須** | -                           | 非稼働日の日付。`YYYY-MM-DD` 形式（実在する日付であること）。重複不可。                     |
+| `holidays[].name` | string         | 任意     | `""`                        | 祝日・休暇の名称。                                                                          |
 
 ---
 
@@ -182,10 +182,12 @@ calendar:
 - **前提 (Given)**:
   - `members.yaml` で `max_capacity` に `1.5`（1.0 超）や `-0.2`（0 以下）が指定されている。
   - または `tasks.yaml` で `deadline` に `2026-02-30`（実在しない日付）や `invalid-date` が指定されている。
+  - または `calendar.yaml` で `holidays` に同一の `date` が重複して指定されている、もしくは実在しない日付（例: `2026-02-30`）が指定されている。
+  - または `calendar.yaml` で `workdays` に重複する曜日が指定されている。
 - **操作 (When)**:
   - スキーマバリデータで検証を実行する。
 - **期待結果 (Then)**:
-  - 検証が失敗し、許容範囲外または形式不正である旨のエラーが報告されること。
+  - 検証が失敗し、許容範囲外・重複・形式不正である旨のエラーが報告されること。
 
 ---
 
