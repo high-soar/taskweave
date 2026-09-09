@@ -187,6 +187,50 @@ members:
         ),
       );
     });
+
+    it("calendar の holidays に実在しない日付が含まれている場合にエラーを検知すること", () => {
+      const yaml = `
+calendar:
+  holidays:
+    - date: "2026-02-30"
+      name: "存在しない日"
+`;
+      const result = validateCalendar(yaml);
+      assert.equal(result.valid, false);
+      assert.ok(result.errors.some((e) => e.includes("date")));
+    });
+
+    it("calendar の holidays に重複した日付が含まれている場合にエラーを検知すること", () => {
+      const yaml = `
+calendar:
+  holidays:
+    - date: "2026-09-15"
+      name: "敬老の日"
+    - date: "2026-09-15"
+      name: "重複した祝日"
+`;
+      const result = validateCalendar(yaml);
+      assert.equal(result.valid, false);
+      assert.ok(
+        result.errors.some(
+          (e) => e.includes("重複") || e.includes("duplicate"),
+        ),
+      );
+    });
+
+    it("calendar の workdays に重複した曜日が含まれている場合にエラーを検知すること", () => {
+      const yaml = `
+calendar:
+  workdays: [mon, tue, mon]
+`;
+      const result = validateCalendar(yaml);
+      assert.equal(result.valid, false);
+      assert.ok(
+        result.errors.some(
+          (e) => e.includes("重複") || e.includes("duplicate"),
+        ),
+      );
+    });
   });
 
   describe("PR Review Feedback Cases", () => {
