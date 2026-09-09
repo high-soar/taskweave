@@ -13,7 +13,8 @@
     "format:check": "prettier --check .",
     "lint": "eslint .",
     "test": "node --test",
-    "typecheck": "node scripts/typecheck.mjs"
+    "typecheck": "node scripts/typecheck.mjs",
+    "validate": "node scripts/validate.mjs"
   },
   "devDependencies": {
     "eslint": "^10.0.0",
