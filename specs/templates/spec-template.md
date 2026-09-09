@@ -4,7 +4,7 @@ title: "[仕様書タイトル]"
 description: "[この仕様の目的と概要を1行で要約]"
 tags: [spec, milestone-1]
 status: draft # draft | under-review | accepted | implemented | superseded
-issue: 1 # 関連する GitHub Issue 番号
+issues: [1] # 関連する GitHub Issue 番号リスト（単一の場合は issue: 1 も可）
 generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-08T16:00:00Z }
 # verified: { by: human:high-soar, at: 2026-09-08T16:30:00Z } # 人間によるレビュー・合意時に追記
 ---

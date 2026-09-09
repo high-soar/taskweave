@@ -23,7 +23,7 @@ OKF is a vendor-neutral, Git-native format that formalizes the "LLM-wiki pattern
 
 ## 2. Frontmatter Specification (OKF v0.2)
 
-Every OKF document MUST start with a YAML frontmatter block delimited by `---`.
+Every OKF concept document MUST start with a YAML frontmatter block delimited by `---` (reserved files such as `index.md` and `log.md` are exempt).
 
 ```yaml
 ---
@@ -78,7 +78,7 @@ Taskweave の仕様書（`specs/*.md`）では、OKF を以下のように活用
 
 ### 4.1 拡張フィールド
 
-- **`issue`**: 紐づく GitHub Issue 番号（例: `issue: 1`）
+- **`issues` / `issue`**: 紐づく GitHub Issue 番号。複数 Issue にまたがる仕様の場合は `issues: [1, 2]`、単一の場合は `issues: [1]` または `issue: 1` を使用する。
 - **`milestone`**: 紐づくマイルストーン（例: `milestone: M1`）
 
 ### 4.2 ライフサイクルと更新手順
@@ -103,13 +103,15 @@ Taskweave の仕様書（`specs/*.md`）では、OKF を以下のように活用
   - ルート相対パス（例: `[YAML Schema](/specs/001-yaml-schema.md)`）または相対パス（`./001-yaml-schema.md`）を使用する。
 - **`index.md` の運用**:
   - ディレクトリ配下の概要一覧として `index.md` を配置し、各コンセプトの `title` と `description` を一覧化する。
+  - 書式は公開 OKF 仕様（§6）に準拠したフラットな 1 行形式（`* [<title>](<filename>) - <description>`）とする。
+  - `index.md` は予約ファイル（目次）であり、YAML フロントマターは持たない（全ドキュメント必須ルールの例外）。
   - エージェントは `index.md` を参照することで、全ドキュメントをメモリに展開せずに必要なドキュメントへアクセスできる。
 
 ---
 
 ## 6. チェックリスト
 
-- [ ] ドキュメント先頭が `---` で始まる有効な YAML フロントマターであること。
+- [ ] ドキュメント先頭が `---` で始まる有効な YAML フロントマターであること（`index.md` 等の予約ファイルを除く）。
 - [ ] `type` フィールドが指定されていること。
 - [ ] `title` および `description`（1行要約）が記載されていること。
 - [ ] 日時がすべて ISO 8601 UTC 形式（例: `2026-09-08T16:00:00Z`）であること。
