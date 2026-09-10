@@ -4,7 +4,7 @@ title: Taskweave Project Agent Guidelines
 description: Taskweave のエージェントと開発者が共有するプロジェクト運用指針
 tags: [ai-agents, development, project-rules]
 status: stable
-generated: { by: copilot/chat, at: 2026-09-10T12:09:08Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-10T14:55:00Z }
 ---
 
 # Taskweave Project Agent Guidelines
@@ -48,6 +48,7 @@ To avoid duplication across AI assistants, this repository follows a unified con
 - **GitHub CLI (`gh`) Integration**: Use `gh issue list`, `gh issue view`, and `gh issue create` to inspect and interact with the backlog from the CLI environment.
 - **Validation**: Add focused tests for scheduling constraints and replanning behavior when the implementation begins. Changes to source-file formats require validation and documentation updates.
 - **Configuration Maintenance**: When modifying or adding configurations (`.devcontainer/`, `.agents/`, `.github/`, `AGENTS.md`), always consult the **`repo-config-management`** skill.
+- **PR Approval & Merge Guardrail**: Pull Request のレビュー、承認、およびマージは人間（開発者）の権限です。エージェントは PR 作成と CI の正常終了確認までを担当し、ユーザーから明示的な指示がない限り、自律的に PR をマージしてはなりません。
 
 ## 4. Human Development Rules
 
