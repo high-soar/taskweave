@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import yaml from "yaml";
 import {
   validateCalendar,
+  validateLogicalIntegrity,
   validateMembers,
   validateTasks,
 } from "../src/validator.mjs";
@@ -41,6 +42,9 @@ function getErrorLine(document, lineCounter, message) {
 
 async function validateDirectory(directory) {
   let hasErrors = false;
+  const parsedData = {};
+  const documents = {};
+  const lineCounters = {};
 
   for (const [fileName, validate] of FILES) {
     const filePath = join(directory, fileName);
@@ -63,11 +67,45 @@ async function validateDirectory(directory) {
       document = null;
     }
 
-    if (!result.valid) hasErrors = true;
-    for (const error of result.errors) {
+    documents[fileName] = document;
+    lineCounters[fileName] = lineCounter;
+
+    if (!result.valid) {
       hasErrors = true;
-      const line = getErrorLine(document, lineCounter, error);
-      console.error(`${fileName}:${line}: ${error}`);
+      for (const error of result.errors) {
+        const line = getErrorLine(document, lineCounter, error);
+        console.error(`${fileName}:${line}: ${error}`);
+      }
+    } else {
+      parsedData[fileName] = result.data;
+    }
+  }
+
+  if (
+    !hasErrors &&
+    parsedData["members.yaml"] &&
+    parsedData["tasks.yaml"] &&
+    parsedData["calendar.yaml"]
+  ) {
+    const logicalResult = validateLogicalIntegrity(
+      parsedData["members.yaml"],
+      parsedData["tasks.yaml"],
+    );
+
+    if (!logicalResult.valid) {
+      hasErrors = true;
+      for (const error of logicalResult.errors) {
+        let fileName = "tasks.yaml";
+        if (error.startsWith("members")) fileName = "members.yaml";
+        else if (error.startsWith("calendar")) fileName = "calendar.yaml";
+
+        const line = getErrorLine(
+          documents[fileName],
+          lineCounters[fileName],
+          error,
+        );
+        console.error(`${fileName}:${line}: ${error}`);
+      }
     }
   }
 
