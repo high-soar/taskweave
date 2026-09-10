@@ -211,7 +211,6 @@ def solve_schedule(
 
     # 納期制約と遅延ペナルティ変数 (Infeasible 診断用)
     delay = {}
-    max_possible_delay = horizon_days + 365  # 開始前納期にも対応可能な十分な上限
     for t_id, task in tasks.items():
         deadline_str = task.get("deadline")
         if force_infeasible_deadline:
@@ -229,8 +228,11 @@ def solve_schedule(
         else:
             target_deadline_day = horizon_days - 1
 
-        delay[t_id] = model.NewIntVar(0, max_possible_delay, f"delay_{t_id}")
+        # 各タスクの納期に応じて遅延変数の上限を動的に導出 (極端な過去納期でも INFEASIBLE を回避)
+        task_max_delay = max(horizon_days, (horizon_days - 1) - target_deadline_day)
+        delay[t_id] = model.NewIntVar(0, task_max_delay, f"delay_{t_id}")
         model.Add(delay[t_id] >= end_day[t_id] - target_deadline_day)
+
 
     # 目的関数:
     # 1. 納期遅延の最小化 (最優先: 重み 10000)
