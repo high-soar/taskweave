@@ -16,7 +16,7 @@ OKF is a vendor-neutral, Git-native format that formalizes the "LLM-wiki pattern
 1. **Human & Agent Readable**: Plain Markdown files with YAML frontmatter. No proprietary SDKs, databases, or runtime required.
 2. **Trust & Provenance First-Class**: Every document explicitly records who generated it (`generated`), who verified it (`verified`), and where the knowledge originates (`sources`).
 3. **Minimally Opinionated & Extensible**: Only `type` is strictly required. Additional custom fields (e.g., `issue`, `milestone`) are allowed and preserved.
-4. **Progressive Disclosure**: Folders use `index.md` to summarize contents so agents can navigate hierarchy without loading the entire corpus at once.
+4. **Progressive Disclosure**: Use `index.md` as a local summary when a directory benefits from one; it is optional.
 5. **Graph-Shaped Links**: Documents cross-reference using standard Markdown links.
 
 ---
@@ -102,7 +102,8 @@ Taskweave の仕様書（`specs/*.md`）では、OKF を以下のように活用
   - ドキュメント間の参照には標準 Markdown リンクを使用する。
   - ルート相対パス（例: `[YAML Schema](/specs/001-yaml-schema.md)`）または相対パス（`./001-yaml-schema.md`）を使用する。
 - **`index.md` の運用**:
-  - ディレクトリ配下の概要一覧として `index.md` を配置し、各コンセプトの `title` と `description` を一覧化する。
+  - ディレクトリ内の文書を短く案内する必要がある場合にだけ `index.md` を配置し、各コンセプトの `title` と `description` を一覧化する。
+  - 文書数が少ないディレクトリや既存の README で十分なディレクトリには、新しい `index.md` を追加しない。
   - 書式は公開 OKF 仕様（§6）に準拠したフラットな 1 行形式（`* [<title>](<filename>) - <description>`）とする。
   - `index.md` は予約ファイル（目次）であり、YAML フロントマターは持たない（全ドキュメント必須ルールの例外）。
   - エージェントは `index.md` を参照することで、全ドキュメントをメモリに展開せずに必要なドキュメントへアクセスできる。
@@ -117,7 +118,8 @@ Taskweave の仕様書（`specs/*.md`）では、OKF を以下のように活用
 
 - `README.md`、`AGENTS.md`、`ROADMAP.md`、`specs/`、`docs/` 配下の Git 管理 Markdown は OKF 文書として扱う。
 - 通常の OKF 文書には `type`、`title`、`description`、`tags`、`generated` を必須とする。
-- `index.md` は OKF 公式では frontmatter 省略可能な予約ファイルだが、Taskweave では `type: index` などの frontmatter を付ける。
+- root `index.md` は Taskweave の生成対象として `type: index` などの frontmatter を付ける。
+- サブディレクトリの `index.md` は必要な場合だけ置く任意のナビゲーション文書とし、置く場合は Taskweave の通常 OKF 文書として frontmatter を付ける。
 - `.github/skills/`、`.github/agents/`、`.github/copilot-instructions.md` は Copilot、Antigravity、または VS Code のネイティブ形式を優先し、OKF 必須フィールドとタグ集約の対象外とする。
 - 新しいツール固有 Markdown を追加する場合は、OKF 文書として分類できるか、既存ツール形式を維持する除外対象かを決める。
 
@@ -155,7 +157,7 @@ npm run typecheck
 
 ## 7. チェックリスト
 
-- [ ] ドキュメント先頭が `---` で始まる有効な YAML フロントマターであること（OKF 公式では `index.md` 等の予約ファイルは例外。Taskweave の通常文書では `index.md` も対象）。
+- [ ] `index.md` を追加する必要性を確認し、追加する場合は Taskweave の通常 OKF 文書として先頭に有効な YAML フロントマターを置くこと。
 - [ ] `type` フィールドが指定されていること。
 - [ ] `title` および `description`（1行要約）が記載されていること。
 - [ ] 日時がすべて ISO 8601 UTC 形式（例: `2026-09-08T16:00:00Z`）であること。
