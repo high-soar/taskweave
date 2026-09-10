@@ -1,3 +1,12 @@
+---
+type: project
+title: Taskweave
+description: コーディングエージェント向けのスケジュール調整ツール
+tags: [project, scheduling, documentation]
+status: draft
+generated: { by: copilot/chat, at: 2026-09-10T12:09:08Z }
+---
+
 # Taskweave
 
 コーディングエージェント向けのスケジュール調整ツールです。
@@ -42,46 +51,13 @@ Taskweave では、これらの条件をテキストベースの原本として�
 - **エージェント向け CLI の体系と計画のレビュー・確定手順**: [Milestone 4](ROADMAP.md#milestone-4-エージェント向け-cli--レポーティング-agent-cli--reporting) で確定
 - **複数メンバでのタスク担当・日単位より細かい計画**: 初期 MVP ではスコープ外（YAGNI 原則）とし、[将来の検討事項](ROADMAP.md#将来の検討事項初期スコープ外--yagni) として整理
 
-## 開発プロセス
+## 開発ルール
 
-Taskweave では、コーディングエージェントとの協調開発と品質担保のため、**スクラム流の目標・ストーリー管理**と **SDD & TDD** を統合した開発標準を採用しています。
+人が開発するときに守るルールの原本は [人向け開発ルール](docs/development/rules.md) です。Issue 管理、SDD/TDD、PR レビュー、Git branch/worktree、品質ゲート、Git フックの手順をまとめています。目次は [開発ルールの目次](docs/development/index.md) を参照してください。
 
-### 1. 全体目標とユーザーストーリー (Why & What)
+## 文書インデックス
 
-- **ロードマップ**: 全体方針とマイルストーンは [`ROADMAP.md`](ROADMAP.md) および GitHub Milestones で可視化します。
-- **ユーザーストーリー**: 実現したい価値や機能は、[Issue テンプレート](.github/ISSUE_TEMPLATE/user_story.yml) を使用して GitHub Issues (`user-story` ラベル) として起票します。
-- **タスク管理**: ストーリーを達成するための作業項目は、Issue 本文内の Tasklist（`- [ ]`）で管理し、Issue の過度な乱立を防ぎます。
-- **DoR (準備完了の定義)**: 実装着手前に、ストーリーの目的（Who/What/Why）、受入基準（Acceptance Criteria）、および必要な仕様（[`specs/`](specs/)）が合意されていることを確認します。
-
-### 2. 仕様策定とテスト駆動開発 (How: SDD & TDD)
-
-1. **Spec（仕様策定・合意 - SDD）**: 詳細な原本 YAML スキーマや計算制約は [`specs/`](specs/) 配下に仕様書を作成して合意します。
-2. **Test（テスト先行 - TDD Red）**: 仕様書の受入基準に基づき、失敗するテストを作成します。
-3. **Code（最小実装 - TDD Green）**: テストを通過させるための最小限の実装を行います（YAGNI 原則の遵守）。
-4. **Refactor（品質改善 - TDD Refactor）**: テストが通過する状態を維持しながら、コードの品質・構造を整理します。
-5. **DoD (完了の定義)**: 全受入基準のテスト通過、品質チェック全通過、仕様・ドキュメント更新を確認し、PR 概要に `Closes #<Issue番号>` を記載してマージ・クローズします。
-
-現行の開発基盤では `node --test` によるテストを実施し、今後の計算エンジン（Python）導入時は `pytest` を用いてテスト駆動開発を行います。
-
-### 3. プルリクエストのレビューコメント
-
-この節を、プルリクエストのレビュー・コメント運用に関する人向けドキュメントの正本とします。`AGENTS.md` からもこの節を参照します。
-
-- **指摘を先に書く**: 概要や感想より先に、確認できたバグ、回帰、リスク、テスト不足を記載し、重要度順に並べます。可能な場合はファイルと行を示します。
-- **GitHub の機能を使い分ける**: 複数の指摘をまとめる場合や自分が作成した PR には `gh pr comment` でトップレベルコメントを投稿します。権限のあるレビュアーが正式なレビュー状態を付ける場合だけ `gh pr review --comment` や `gh pr review --request-changes` を使います。1 行に限定される問題だけはインラインコメントにします。
-- **修正可能な内容にする**: 影響、再現条件、期待する動作、修正の方向を具体的に書きます。根拠のない懸念を不具合として扱いません。
-- **履歴を一貫させる**: 関連する指摘は 1 件のレビューコメントにまとめ、断片的な結論を連続投稿しません。修正後は同じ流れでコミットまたは変更内容と検証結果を返信し、更新された PR を再確認してから解決済みとします。
-- **無関係な状態を混ぜない**: PR のリビジョンで再現しないローカル限定の失敗、既存の作業ツリー変更、環境問題は、PR の問題として報告しません。
-
-### 4. Git ブランチ運用
-
-この節を、Issue 対応時の Git ブランチ運用に関する人向け手順の正本とします。エージェント向けの参照ルールは `AGENTS.md` に置き、手順本文を重複させません。
-
-- **作業開始前に確認する**: `git fetch origin` の後、`git branch --show-current`、`git log --oneline origin/main..HEAD`、`git diff --name-status origin/main...HEAD` で現在のブランチと未整理の差分を確認します。別の Issue 用ブランチにいる、または意図しない差分がある場合は、編集を始めずに切り分けます。
-- **`origin/main` から作成する**: Issue 対応は 1 Issue / 1 PR / 1 作業ブランチとし、`origin/main` を起点に `feature/issue-<number>-<slug>` または `fix/issue-<number>-<slug>` を作成します。Issue に紐づかないリポジトリ設定・文書などの保守作業は `chore/<slug>` を使います。別の Issue 用ブランチを再利用せず、`feat/` と `feature/` を混在させません。
-- **`main` へ直接作業・push しない**: 実装とコミットは作業ブランチで行い、レビュー修正も同じ PR ブランチへ追加します。
-- **PR 前に起点を再確認する**: 現在のブランチ名と `origin/main...HEAD` の差分を確認し、無関係なコミットやファイルが含まれていないことを確認してから commit、push、PR 作成を行います。
-- **マージ後に整理する**: PR がマージされたら `main` を更新し、不要になったローカルおよびリモートの作業ブランチを削除します。
+通常のプロジェクト文書は [Taskweave 文書インデックス](index.md) から確認できます。タグ一覧は各文書の OKF frontmatter から生成されます。文書を追加・変更した場合は `npm run docs:index` と `npm run docs:check` を実行してください。
 
 ## 開発環境
 
@@ -93,39 +69,7 @@ VS Code でこのリポジトリを開き、`Dev Containers: Reopen in Container
 
 ## 開発時の確認
 
-依存関係を導入します。
-
-```sh
-npm install
-```
-
-現在の開発基盤に対する品質チェックは次のとおりです。
-
-```sh
-npm run format:check
-npm run lint
-npm test
-npm run typecheck
-npm run validate -- examples/basic
-```
-
-整形が必要な場合は次を実行します。
-
-```sh
-npm run format
-```
-
-## Git フック
-
-`npm install` または `npm ci` を実行すると、リポジトリ管理下の [`.githooks/pre-push`](.githooks/pre-push) がこの clone の Git 設定に登録されます。以降の `git push` では、整形チェック、Lint、テスト、型チェックが実行されます。
-
-既存の clone で再設定する場合は次を実行します。
-
-```sh
-npm run prepare
-```
-
-プルリクエストと `main` への push では、同じチェックが GitHub Actions により実行されます。
+品質チェックと Git フックの手順は [人向け開発ルール](docs/development/rules.md) にまとめています。
 
 ## AI 向け設定
 

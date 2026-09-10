@@ -109,10 +109,56 @@ Taskweave の仕様書（`specs/*.md`）では、OKF を以下のように活用
 
 ---
 
-## 6. チェックリスト
+## 6. Taskweave での運用
 
-- [ ] ドキュメント先頭が `---` で始まる有効な YAML フロントマターであること（`index.md` 等の予約ファイルを除く）。
+この節は OKF v0.2 の拡張ではなく、Taskweave リポジトリ固有の運用ルールです。公式定義と互換性を保ちながら、文書の対象範囲、タグ、検査方法を固定します。
+
+### 6.1 文書プロファイル
+
+- `README.md`、`AGENTS.md`、`ROADMAP.md`、`specs/`、`docs/` 配下の Git 管理 Markdown は OKF 文書として扱う。
+- 通常の OKF 文書には `type`、`title`、`description`、`tags`、`generated` を必須とする。
+- `index.md` は OKF 公式では frontmatter 省略可能な予約ファイルだが、Taskweave では `type: index` などの frontmatter を付ける。
+- `.github/skills/`、`.github/agents/`、`.github/copilot-instructions.md` は Copilot、Antigravity、または VS Code のネイティブ形式を優先し、OKF 必須フィールドとタグ集約の対象外とする。
+- 新しいツール固有 Markdown を追加する場合は、OKF 文書として分類できるか、既存ツール形式を維持する除外対象かを決める。
+
+### 6.2 frontmatter とタグの更新
+
+1. 新しい通常文書を作るときは、先頭に固定形式の YAML frontmatter を追加する。
+2. `tags` は小文字 ASCII の kebab-case（例: `git-worktree`）で 1 個以上指定し、同じ文書内で重複させない。
+3. 文書の内容、タイトル、説明、タグを実質的に変更したときは `generated.at` を更新する。単なる整形でも frontmatter の値を変更した場合は更新する。
+4. `generated.by` は `human:<id>`、`process:<id>`、または `<producer>/<model>` のいずれかを使用する。
+5. `index.md` のタグ一覧は手入力しない。各文書の `tags` が正本であり、root `index.md` はそこから生成する。
+
+### 6.3 タグ検索と index 更新
+
+- root [`index.md`](../../index.md) の `Tags` 一覧からタグを選ぶと、同じファイル内のタグ別文書一覧へ移動できる。
+- 文書を追加・削除したり、`title`、`description`、`tags` を変更したりした場合は `npm run docs:index` を実行する。
+- `<!-- BEGIN GENERATED: okf-index -->` と `<!-- END GENERATED: okf-index -->` の間は生成領域であり、手動編集しない。
+- `npm run docs:check` は frontmatter、タグ、生成 index の一致を検査する。index は自動修正せず、古い場合は `npm run docs:index` を案内して失敗する。
+- 検査対象は `git ls-files` で列挙される Git 管理 Markdown であり、Git 管理外の Markdown は対象外とする。
+
+### 6.4 推奨ワークフロー
+
+```sh
+# 文書を追加・編集した後
+npm run docs:index
+npm run docs:check
+
+# push 前に通常の品質ゲートも実行
+npm run format:check
+npm run lint
+npm test
+npm run typecheck
+```
+
+`docs:check` は `.githooks/pre-push` と GitHub Actions でも実行される。新しい文書を Git に追加した後、index を再生成してから commit する。
+
+## 7. チェックリスト
+
+- [ ] ドキュメント先頭が `---` で始まる有効な YAML フロントマターであること（OKF 公式では `index.md` 等の予約ファイルは例外。Taskweave の通常文書では `index.md` も対象）。
 - [ ] `type` フィールドが指定されていること。
 - [ ] `title` および `description`（1行要約）が記載されていること。
 - [ ] 日時がすべて ISO 8601 UTC 形式（例: `2026-09-08T16:00:00Z`）であること。
 - [ ] アクターが `human:<id>` または `<agent>/<model>` の形式であること。
+- [ ] Taskweave の通常文書では `tags` が小文字 ASCII kebab-case で重複していないこと。
+- [ ] 文書追加・変更後に `npm run docs:index` と `npm run docs:check` を実行していること。

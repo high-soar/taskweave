@@ -1,3 +1,12 @@
+---
+type: index
+title: Taskweave 仕様書
+description: Taskweave の仕様書と仕様書ライフサイクルの案内
+tags: [specifications, documentation, index]
+status: stable
+generated: { by: copilot/chat, at: 2026-09-10T12:09:08Z }
+---
+
 # Taskweave 仕様書 (Specs)
 
 このディレクトリは、Taskweave の機能要件、原本 YAML スキーマ、計算制約、CLI インターフェースなどの仕様（Specification）を管理する正本（SSOT）です。
@@ -39,9 +48,10 @@ specs/
 
 仕様書のカタログ正本（AI・ツール向けインデックス）は [`index.md`](index.md) です。人間向けの概要は以下の表のとおりです。
 
-| 連番 / ファイル名                          | タイトル               | ステータス    | 関連 Issue                                                                                                                                                          | 概要                                                                    |
-| :----------------------------------------- | :--------------------- | :------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------- |
-| [`001-yaml-schema.md`](001-yaml-schema.md) | 原本 YAML スキーマ定義 | `Implemented` | [#1](https://github.com/high-soar/taskweave/issues/1), [#2](https://github.com/high-soar/taskweave/issues/2), [#3](https://github.com/high-soar/taskweave/issues/3) | メンバ・タスク・制約・カレンダーの原本データモデルおよび検証 CLI の仕様 |
+| 連番 / ファイル名                                                  | タイトル                       | ステータス    | 関連 Issue                                                                                                                                                          | 概要                                                                    |
+| :----------------------------------------------------------------- | :----------------------------- | :------------ | :------------------------------------------------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------- |
+| [`001-yaml-schema.md`](001-yaml-schema.md)                         | 原本 YAML スキーマ定義         | `Implemented` | [#1](https://github.com/high-soar/taskweave/issues/1), [#2](https://github.com/high-soar/taskweave/issues/2), [#3](https://github.com/high-soar/taskweave/issues/3) | メンバ・タスク・制約・カレンダーの原本データモデルおよび検証 CLI の仕様 |
+| [`002-okf-document-management.md`](002-okf-document-management.md) | OKF 文書管理とタグインデックス | `Accepted`    | -                                                                                                                                                                   | Git 管理 Markdown の frontmatter、タグ集約 index、検査 CLI の仕様       |
 
 ---
 

@@ -1,3 +1,12 @@
+---
+type: agent-guidelines
+title: Taskweave Project Agent Guidelines
+description: Taskweave のエージェントと開発者が共有するプロジェクト運用指針
+tags: [ai-agents, development, project-rules]
+status: stable
+generated: { by: copilot/chat, at: 2026-09-10T12:09:08Z }
+---
+
 # Taskweave Project Agent Guidelines
 
 Taskweave is a schedule-planning tool for coding agents. It is intended to manage members, tasks, estimates, constraints, and actual work as text-based source files so that an agent can help propose and revise a team schedule.
@@ -20,11 +29,12 @@ When implementation starts, keep source data separate from generated schedules. 
 
 To avoid duplication across AI assistants, this repository follows a unified configuration strategy:
 
-| Component                | Source of Truth (SSOT)           | Antigravity Integration             | GitHub Copilot Integration                       |
-| :----------------------- | :------------------------------- | :---------------------------------- | :----------------------------------------------- |
-| **Rules / Instructions** | `AGENTS.md` (this file)          | Natively loaded from workspace root | Referenced via `.github/copilot-instructions.md` |
-| **Skills**               | `.github/skills/<name>/SKILL.md` | Mapped via `.agents/skills.json`    | Natively loaded from `.github/skills/`           |
-| **Custom Agents**        | `.github/agents/<name>.agent.md` | Accessible as agent templates/rules | Natively loaded from `.github/agents/`           |
+| Component                   | Source of Truth (SSOT)                                   | Antigravity Integration             | GitHub Copilot Integration                       |
+| :-------------------------- | :------------------------------------------------------- | :---------------------------------- | :----------------------------------------------- |
+| **Rules / Instructions**    | `AGENTS.md` (this file)                                  | Natively loaded from workspace root | Referenced via `.github/copilot-instructions.md` |
+| **Human development rules** | [`docs/development/rules.md`](docs/development/rules.md) | Linked from this file               | Linked from `README.md` and this file            |
+| **Skills**                  | `.github/skills/<name>/SKILL.md`                         | Mapped via `.agents/skills.json`    | Natively loaded from `.github/skills/`           |
+| **Custom Agents**           | `.github/agents/<name>.agent.md`                         | Accessible as agent templates/rules | Natively loaded from `.github/agents/`           |
 
 ---
 
@@ -34,19 +44,11 @@ To avoid duplication across AI assistants, this repository follows a unified con
 - **Source of truth**: Prefer text-based source files for planning data. Generated plans and diagnostics must be reproducible and must not silently replace the source data.
 - **Current phase**: Do not present a proposed data schema or calculation behavior as implemented until it has been agreed, tested, and documented.
 - **Coding Conventions**: Follow standard clean-code principles and the established conventions of each language. Keep Node.js tooling and future Python tooling independently understandable.
-- **Spec-Driven Development (SDD)**: Define specifications (requirements, data schemas, calculation rules, acceptance criteria) under `specs/` and obtain review/agreement before writing implementation code. Any behavior or source format change begins with an updated specification.
-- **Test-Driven Development (TDD)**: Follow the Red-Green-Refactor cycle. Write failing tests against the agreed specification first, implement the minimum code required to pass the tests (combining with the `ponytail` skill for YAGNI), and refactor while keeping tests green.
-- **Goal & Story Tracking**: Manage overall goals in `ROADMAP.md` and GitHub Milestones. Define value-driven features as GitHub Issues using the User Story template (`user-story` label).
-- **Task Management**: Track tasks within each story Issue using Markdown tasklists (`- [ ]`). Avoid creating separate issues for minor subtasks unless they represent independently deliverable value.
-- **Definition of Ready (DoR)**: Do not begin implementation until a story meets the DoR: clear Who/What/Why, verifiable Acceptance Criteria, and an agreed specification (`specs/`) for non-trivial changes.
-- **Definition of Done (DoD)**: A story or task is only Done when: (1) all acceptance criteria are covered by passing automated tests (TDD Green), (2) all quality checks (`npm run format:check`, `lint`, `test`, `typecheck`) pass, (3) Ponytail/YAGNI principles are satisfied (no speculative abstractions), and (4) specs and docs are updated. Pull requests must link to their issue using `Closes #<issue-number>`.
+- **Human development workflow**: The rules for SDD/TDD, Issue tracking, DoR/DoD, Git commits, PR review, and branch/worktree operation are defined in [`docs/development/rules.md`](docs/development/rules.md). Follow that document and do not duplicate its details here.
 - **GitHub CLI (`gh`) Integration**: Use `gh issue list`, `gh issue view`, and `gh issue create` to inspect and interact with the backlog from the CLI environment.
 - **Validation**: Add focused tests for scheduling constraints and replanning behavior when the implementation begins. Changes to source-file formats require validation and documentation updates.
-- **Git Commits**: Use descriptive commit messages following Conventional Commits (e.g., `feat: ...`, `fix: ...`, `chore: ...`).
 - **Configuration Maintenance**: When modifying or adding configurations (`.devcontainer/`, `.agents/`, `.github/`, `AGENTS.md`), always consult the **`repo-config-management`** skill.
 
-## 4. Pull Request Review & Comment Rules
+## 4. Human Development Rules
 
-PR レビューコメントの人向け運用ルールは、[README.md の該当節](README.md#3-プルリクエストのレビューコメント)を正本とします。レビューやコメントを扱うときは、その手順を読み、ここに別の重複ルールを作らないでください。
-
-Git ブランチ運用の人向け手順は、[README.md の Git ブランチ運用節](README.md#4-git-ブランチ運用)を正本とします。Issue または保守作業の着手時は `origin/main` を起点に専用ブランチを用意し、既存の別 Issue 用ブランチを再利用しないでください。レビュー修正は同じ PR ブランチへ追加し、マージ後は作業ブランチを整理します。
+人が開発するときのルールは [`docs/development/rules.md`](docs/development/rules.md) を正本とします。エージェントが Issue、仕様、テスト、レビュー、Git 運用に関わる場合もこの文書に従い、ここへ同じ手順を重複して記載しません。

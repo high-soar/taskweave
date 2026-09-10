@@ -8,6 +8,9 @@ cd "$repository_root"
 echo "Running format check before push..."
 npm run format:check
 
+echo "Running OKF documentation check before push..."
+npm run docs:check
+
 echo "Running lint before push..."
 npm run lint
 

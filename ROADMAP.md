@@ -1,3 +1,12 @@
+---
+type: roadmap
+title: Taskweave プロダクトロードマップ & マイルストーン
+description: Taskweave の全体目標、開発マイルストーン、将来の検討事項
+tags: [roadmap, planning, milestones]
+status: stable
+generated: { by: copilot/chat, at: 2026-09-10T12:09:08Z }
+---
+
 # Taskweave プロダクトロードマップ & マイルストーン
 
 Taskweave の全体目標とマイルストーンを定義します。
