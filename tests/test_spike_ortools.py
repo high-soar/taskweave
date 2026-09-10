@@ -184,3 +184,4 @@ def test_large_workload_dynamic_horizon(basic_data):
     assert result["status"] == "OPTIMAL"
     assert result["makespan_workdays"] == 31
     assert result["tasks"]["task-huge"]["workdays_count"] == 31
+

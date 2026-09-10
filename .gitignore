@@ -11,3 +11,7 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
+# Git worktrees
+.worktrees/
+
+
