@@ -4,7 +4,7 @@ title: 人向け開発ルール
 description: Taskweave の人間開発者が仕様、実装、レビュー、Git 運用を進めるときの共通ルール
 tags: [development, workflow, review, git]
 status: stable
-generated: { by: copilot/chat, at: 2026-09-10T12:09:08Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-10T14:55:00Z }
 sources:
   - id: taskweave-readme
     resource: ../../README.md
@@ -31,7 +31,7 @@ sources:
 2. **Test（テスト先行 - TDD Red）**: 仕様書の受入基準に基づき、失敗するテストを作成します。
 3. **Code（最小実装 - TDD Green）**: テストを通過させるための最小限の実装を行います（YAGNI 原則の遵守）。
 4. **Refactor（品質改善 - TDD Refactor）**: テストが通過する状態を維持しながら、コードの品質・構造を整理します。
-5. **DoD (完了の定義)**: 全受入基準のテスト通過、品質チェック全通過、仕様・ドキュメント更新を確認し、PR 概要に `Closes #<Issue番号>` を記載してマージ・クローズします。
+5. **DoD (完了の定義)**: 全受入基準のテスト通過、品質チェック全通過、仕様・ドキュメント更新を確認し、PR 概要に `Closes #<Issue番号>` を記載して PR を作成します。CI が正常終了することを確認した上で、人間のレビューおよび承認・マージ指示を待ちます。エージェントは指示されない限り勝手にマージしてはなりません。
 
 現行の開発基盤では `node --test` によるテストを実施し、今後の計算エンジン（Python）導入時は `pytest` を用いてテスト駆動開発を行います。
 
@@ -49,6 +49,7 @@ sources:
 - **専用 worktree を作成する**: Issue 対応は 1 Issue / 1 PR / 1 作業ブランチ / 1 worktree とし、`origin/main` を起点に専用 worktree と `feature/issue-<number>-<slug>` または `fix/issue-<number>-<slug>` を作成します。例: `git worktree add -b feature/issue-<number>-<slug> ../taskweave-<number>-<slug> origin/main`。Issue に紐づかないリポジトリ設定・文書などの保守作業は `chore/<slug>` を使います。別の Issue 用ブランチや worktree を再利用せず、`feat/` と `feature/` を混在させません。
 - **`main` へ直接作業・push しない**: `main` の worktree は確認や更新にのみ使用し、実装・コミット・push は専用 worktree の作業ブランチで行います。レビュー修正も同じ worktree と PR ブランチへ追加します。
 - **PR 前に起点を再確認する**: 現在のブランチ名と `origin/main...HEAD` の差分を確認し、無関係なコミットやファイルが含まれていないことを確認してから commit、push、PR 作成を行います。
+- **PR の承認とマージは人間が行う**: PR のレビュー、承認、およびマージの権限は人間（開発者・レビュアー）にあります。エージェントは PR 作成と CI の正常終了確認までを担当し、ユーザーから明示的な指示がない限り、自律的に PR をマージしてはなりません。
 - **マージ後に整理する**: PR がマージされたら `main` を更新し、作業 worktree を離れてから `git worktree remove <path>` で削除し、不要になったローカルおよびリモートの作業ブランチも削除します。未コミットの変更が残っている場合は、削除前に内容を確認します。
 
 ## 5. 品質ゲートと Git フック
