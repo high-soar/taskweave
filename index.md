@@ -22,6 +22,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [Taskweave プロダクトロードマップ & マイルストーン](ROADMAP.md) - Taskweave の全体目標、開発マイルストーン、将来の検討事項
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 - [OKF 文書管理とタグインデックス](specs/002-okf-document-management.md) - Git 管理下の Taskweave 文書に OKF frontmatter を適用し、タグ集約インデックスと自動検査を提供する仕様
+- [計算エンジンの入出力および制約モデル仕様](specs/003-scheduling-engine.md) - Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
 - [Taskweave 仕様書](specs/README.md) - Taskweave の仕様書と仕様書ライフサイクルの案内
 - [\[仕様書タイトル\]](specs/templates/spec-template.md) - \[この仕様の目的と概要を1行で要約\]
 
@@ -30,10 +31,13 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [ai-agents](#tag-ai-agents)
 - [development](#tag-development)
 - [documentation](#tag-documentation)
+- [engine](#tag-engine)
 - [git](#tag-git)
 - [milestone-1](#tag-milestone-1)
+- [milestone-2](#tag-milestone-2)
 - [milestones](#tag-milestones)
 - [okf](#tag-okf)
+- [or-tools](#tag-or-tools)
 - [planning](#tag-planning)
 - [project](#tag-project)
 - [project-rules](#tag-project-rules)
@@ -60,6 +64,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [Taskweave](README.md) - コーディングエージェント向けのスケジュール調整ツール
 - [OKF 文書管理とタグインデックス](specs/002-okf-document-management.md) - Git 管理下の Taskweave 文書に OKF frontmatter を適用し、タグ集約インデックスと自動検査を提供する仕様
 
+### Tag: engine
+
+- [計算エンジンの入出力および制約モデル仕様](specs/003-scheduling-engine.md) - Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
+
 ### Tag: git
 
 - [人向け開発ルール](docs/development/rules.md) - Taskweave の人間開発者が仕様、実装、レビュー、Git 運用を進めるときの共通ルール
@@ -69,6 +77,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 - [\[仕様書タイトル\]](specs/templates/spec-template.md) - \[この仕様の目的と概要を1行で要約\]
 
+### Tag: milestone-2
+
+- [計算エンジンの入出力および制約モデル仕様](specs/003-scheduling-engine.md) - Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
+
 ### Tag: milestones
 
 - [Taskweave プロダクトロードマップ & マイルストーン](ROADMAP.md) - Taskweave の全体目標、開発マイルストーン、将来の検討事項
@@ -76,6 +88,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: okf
 
 - [OKF 文書管理とタグインデックス](specs/002-okf-document-management.md) - Git 管理下の Taskweave 文書に OKF frontmatter を適用し、タグ集約インデックスと自動検査を提供する仕様
+
+### Tag: or-tools
+
+- [計算エンジンの入出力および制約モデル仕様](specs/003-scheduling-engine.md) - Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
 
 ### Tag: planning
 
@@ -100,6 +116,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: scheduling
 
 - [Taskweave](README.md) - コーディングエージェント向けのスケジュール調整ツール
+- [計算エンジンの入出力および制約モデル仕様](specs/003-scheduling-engine.md) - Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
 
 ### Tag: schema
 
