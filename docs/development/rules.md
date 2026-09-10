@@ -46,11 +46,11 @@ sources:
 ## 4. Git ブランチと worktree
 
 - **作業開始前に確認する**: `git fetch origin` の後、`git branch --show-current`、`git log --oneline origin/main..HEAD`、`git diff --name-status origin/main...HEAD`、`git worktree list` で現在のブランチ、worktree、未整理の差分を確認します。別の Issue 用ブランチにいる、意図しない差分がある、または対象ブランチが別の worktree で使用中の場合は、編集を始めずに切り分けます。
-- **専用 worktree を作成する**: Issue 対応は 1 Issue / 1 PR / 1 作業ブランチ / 1 worktree とし、`origin/main` を起点に専用 worktree と `feature/issue-<number>-<slug>` または `fix/issue-<number>-<slug>` を作成します。例: `git worktree add -b feature/issue-<number>-<slug> ../taskweave-<number>-<slug> origin/main`。Issue に紐づかないリポジトリ設定・文書などの保守作業は `chore/<slug>` を使います。別の Issue 用ブランチや worktree を再利用せず、`feat/` と `feature/` を混在させません。
+- **専用 worktree を作成する**: Issue 対応は 1 Issue / 1 PR / 1 作業ブランチ / 1 worktree とし、`origin/main` を起点に専用 worktree と `feature/issue-<number>-<slug>` または `fix/issue-<number>-<slug>` を作成します。例: `git worktree add -b feature/issue-<number>-<slug> .worktrees/taskweave-<number>-<slug> origin/main`。Issue に紐づかないリポジトリ設定・文書などの保守作業は `chore/<slug>` を使います。別の Issue 用ブランチや worktree を再利用せず、`feat/` と `feature/` を混在させません。
 - **`main` へ直接作業・push しない**: `main` の worktree は確認や更新にのみ使用し、実装・コミット・push は専用 worktree の作業ブランチで行います。レビュー修正も同じ worktree と PR ブランチへ追加します。
 - **PR 前に起点を再確認する**: 現在のブランチ名と `origin/main...HEAD` の差分を確認し、無関係なコミットやファイルが含まれていないことを確認してから commit、push、PR 作成を行います。
 - **PR の承認とマージは人間が行う**: PR のレビュー、承認、およびマージの権限は人間（開発者・レビュアー）にあります。エージェントは PR 作成と CI の正常終了確認までを担当し、ユーザーから明示的な指示がない限り、自律的に PR をマージしてはなりません。
-- **マージ後に整理する**: PR がマージされたら `main` を更新し、作業 worktree を離れてから `git worktree remove <path>` で削除し、不要になったローカルおよびリモートの作業ブランチも削除します。未コミットの変更が残っている場合は、削除前に内容を確認します。
+- **マージ後に整理する**: PR がマージされたら `main` を更新し、作業 worktree を離れてから `git worktree remove .worktrees/taskweave-<number>-<slug>` で削除し、不要になったローカルおよびリモートの作業ブランチも削除します。未コミットの変更が残っている場合は、削除前に内容を確認します。
 
 ## 5. 品質ゲートと Git フック
 
