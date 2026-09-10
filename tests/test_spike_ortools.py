@@ -185,3 +185,28 @@ def test_large_workload_dynamic_horizon(basic_data):
     assert result["makespan_workdays"] == 31
     assert result["tasks"]["task-huge"]["workdays_count"] == 31
 
+
+def test_extremely_past_deadline_handled_without_infeasible(basic_data):
+    """極端に古い過去の納期（例: 2020-01-01）でも INFEASIBLE にならず、動的な遅延上限により OPTIMAL で解けること."""
+    members, _, calendar = basic_data
+    start_date = datetime.date(2026, 9, 1)
+
+    ancient_deadline_tasks = [
+        {
+            "id": "task-ancient-deadline",
+            "title": "大昔の納期タスク",
+            "estimate_hours": 8.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2020-01-01",
+        }
+    ]
+
+    result = solve_schedule(members, ancient_deadline_tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+    t_info = result["tasks"]["task-ancient-deadline"]
+    assert t_info["delay_days"] > 1000  # 2020年〜2026年の約6年分の営業日数が遅延として正確に計算されること
+    assert result["diagnostics"]["is_deadline_violated"] is True
+    assert result["diagnostics"]["delayed_tasks"][0]["task_id"] == "task-ancient-deadline"
+
+
