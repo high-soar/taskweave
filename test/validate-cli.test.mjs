@@ -153,4 +153,80 @@ describe("validate CLI", () => {
       await rm(testDir, { recursive: true, force: true });
     }
   });
+
+  it("タスク循環依存をファイル名と行番号付きで報告すること", async () => {
+    const testDir = await mkdtemp(join(tmpdir(), "taskweave-validation-"));
+
+    try {
+      await Promise.all(
+        ["members.yaml", "calendar.yaml"].map(async (fileName) => {
+          const content = await readFile(join(BASIC_DIR, fileName), "utf-8");
+          await writeFile(join(testDir, fileName), content);
+        }),
+      );
+      await writeFile(
+        join(testDir, "tasks.yaml"),
+        `tasks:
+  - id: task-a
+    title: "Task A"
+    estimate_hours: 8
+    depends_on:
+      - task-b
+  - id: task-b
+    title: "Task B"
+    estimate_hours: 8
+    depends_on:
+      - task-a
+`,
+      );
+
+      await assert.rejects(
+        execFileAsync(process.execPath, [CLI_PATH, testDir]),
+        (error) => {
+          assert.equal(error.code, 1);
+          assert.match(error.stderr, /tasks\.yaml:\d+:.*循環/);
+          return true;
+        },
+      );
+    } finally {
+      await rm(testDir, { recursive: true, force: true });
+    }
+  });
+
+  it("未定義タスク参照をファイル名と行番号付きで報告すること", async () => {
+    const testDir = await mkdtemp(join(tmpdir(), "taskweave-validation-"));
+
+    try {
+      await Promise.all(
+        ["members.yaml", "calendar.yaml"].map(async (fileName) => {
+          const content = await readFile(join(BASIC_DIR, fileName), "utf-8");
+          await writeFile(join(testDir, fileName), content);
+        }),
+      );
+      await writeFile(
+        join(testDir, "tasks.yaml"),
+        `tasks:
+  - id: task-a
+    title: "Task A"
+    estimate_hours: 8
+    depends_on:
+      - task-nonexistent
+`,
+      );
+
+      await assert.rejects(
+        execFileAsync(process.execPath, [CLI_PATH, testDir]),
+        (error) => {
+          assert.equal(error.code, 1);
+          assert.match(
+            error.stderr,
+            /tasks\.yaml:\d+:.*未定義.*task-nonexistent/,
+          );
+          return true;
+        },
+      );
+    } finally {
+      await rm(testDir, { recursive: true, force: true });
+    }
+  });
 });

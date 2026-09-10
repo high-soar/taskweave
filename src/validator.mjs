@@ -334,6 +334,14 @@ export async function validateProjectData(dirPath) {
     errors.push(`calendar.yaml 読み込み失敗: ${err.message}`);
   }
 
+  if (allValid && members && tasks && calendar) {
+    const logicalRes = validateLogicalIntegrity(members, tasks);
+    if (!logicalRes.valid) {
+      allValid = false;
+      errors.push(...logicalRes.errors);
+    }
+  }
+
   return {
     valid: allValid && errors.length === 0,
     errors,
@@ -341,4 +349,102 @@ export async function validateProjectData(dirPath) {
     tasks,
     calendar,
   };
+}
+
+export function validateLogicalIntegrity(members, tasks) {
+  const errors = [];
+  if (!Array.isArray(tasks)) return { valid: true, errors: [] };
+
+  const taskMap = new Map();
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i];
+    if (t && typeof t.id === "string") {
+      taskMap.set(t.id, { index: i, task: t });
+    }
+  }
+
+  // 1. 未定義タスク参照チェック (Undefined Task Reference)
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i];
+    if (!t || !Array.isArray(t.depends_on)) continue;
+    for (let d = 0; d < t.depends_on.length; d++) {
+      const depId = t.depends_on[d];
+      if (!taskMap.has(depId)) {
+        errors.push(
+          `tasks[${i}].depends_on[${d}]: 未定義のタスク "${depId}" を参照しています (参照元: "${t.id}")。解決のヒント: 存在するタスク ID を指定するか、tasks.yaml にタスクを追加してください`,
+        );
+      }
+    }
+  }
+
+  // 2. 循環依存検知 (DFS Cycle Detection)
+  const visited = new Map();
+  const reportedCycles = new Set();
+
+  function dfs(taskId, path) {
+    visited.set(taskId, 1);
+    path.push(taskId);
+
+    const entry = taskMap.get(taskId);
+    const dependsOn = entry?.task?.depends_on;
+    if (Array.isArray(dependsOn)) {
+      for (const nextId of dependsOn) {
+        if (!taskMap.has(nextId)) continue;
+
+        const state = visited.get(nextId);
+        if (state === 1) {
+          const cycleStart = path.indexOf(nextId);
+          const cycleNodes = path.slice(cycleStart);
+          const cyclePath = [...cycleNodes, nextId].join(" -> ");
+
+          const cycleKey = [...cycleNodes].sort().join(",");
+          if (!reportedCycles.has(cycleKey)) {
+            reportedCycles.add(cycleKey);
+            const taskIndex = entry?.index ?? 0;
+            errors.push(
+              `tasks[${taskIndex}].depends_on: タスク依存関係に循環参照が検出されました: ${cyclePath}。解決のヒント: 先行・後続の依存関係を見直して循環を解消してください`,
+            );
+          }
+        } else if (!state) {
+          dfs(nextId, path);
+        }
+      }
+    }
+
+    path.pop();
+    visited.set(taskId, 2);
+  }
+
+  for (const taskId of taskMap.keys()) {
+    if (!visited.has(taskId)) {
+      dfs(taskId, []);
+    }
+  }
+
+  // 3. 未定義スキル参照チェック (Undefined Skill Reference)
+  if (Array.isArray(members)) {
+    const teamSkills = new Set();
+    for (const m of members) {
+      if (Array.isArray(m?.skills)) {
+        for (const s of m.skills) {
+          if (typeof s === "string") teamSkills.add(s);
+        }
+      }
+    }
+
+    for (let i = 0; i < tasks.length; i++) {
+      const t = tasks[i];
+      if (!t || !Array.isArray(t.required_skills)) continue;
+      for (let s = 0; s < t.required_skills.length; s++) {
+        const skill = t.required_skills[s];
+        if (typeof skill === "string" && !teamSkills.has(skill)) {
+          errors.push(
+            `tasks[${i}].required_skills[${s}]: タスク "${t.id}" の必須スキル "${skill}" を保有するメンバが存在しません。解決のヒント: members.yaml の skills にスキルを追加するか、タスクの必須スキルを見直してください`,
+          );
+        }
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors };
 }
