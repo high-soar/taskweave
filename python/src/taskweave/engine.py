@@ -143,7 +143,7 @@ def solve_schedule(
     tasks = {t["id"]: t for t in tasks_data}
     task_ids = list(tasks.keys())
 
-    # タスク工数の最小単位・0.1h刻み検証および未定義依存タスクの検証 (FR-10)
+    # タスク工数の最小単位・0.1h刻み検証、未定義依存タスクの検証 (FR-10)、および必須スキル充足メンバの検証 (FR-4)
     for t_id, task in tasks.items():
         est = task.get("estimate_hours", 0)
         t_est = round(est * scale)
@@ -155,6 +155,17 @@ def solve_schedule(
             if dep_id not in tasks:
                 raise ValueError(
                     f"タスク '{t_id}' の先行タスク '{dep_id}' が tasks に定義されていません。"
+                )
+        req_skills = set(task.get("required_skills") or [])
+        if req_skills:
+            capable_members = [
+                m_id
+                for m_id, member in members.items()
+                if req_skills.issubset(set(member.get("skills") or []))
+            ]
+            if not capable_members:
+                raise ValueError(
+                    f"タスク '{t_id}' の必須スキル {sorted(req_skills)} をすべて保有するメンバが members に存在しません。"
                 )
 
     # 計画地平 (Horizon) の決定 (FR-11)
@@ -189,9 +200,9 @@ def solve_schedule(
 
     # スキル制約 (FR-4): required_skills を持たないメンバへの割当を禁止
     for t_id, task in tasks.items():
-        req_skills = set(task.get("required_skills", []))
+        req_skills = set(task.get("required_skills") or [])
         for m_id, member in members.items():
-            mem_skills = set(member.get("skills", []))
+            mem_skills = set(member.get("skills") or [])
             if not req_skills.issubset(mem_skills):
                 model.Add(assigned[t_id, m_id] == 0)
 
