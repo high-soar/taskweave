@@ -52,6 +52,16 @@ def load_project_data(data_dir: str | Path) -> tuple[list[dict[str, Any]], list[
     return members, tasks, calendar
 
 
+def parse_holiday_dates(holidays_config: list[dict[str, Any]]) -> set[datetime.date]:
+    """祝日設定リストを検証し、datetime.date のセットを生成する."""
+    holiday_dates: set[datetime.date] = set()
+    for h in holidays_config:
+        if not isinstance(h, dict) or "date" not in h or h["date"] is None:
+            raise ValueError(f"calendar.holidays の各項目には 'date' フィールドが必須です: {h}")
+        holiday_dates.add(to_date(h["date"]))
+    return holiday_dates
+
+
 def build_workdays(
     start_date: datetime.date,
     num_days: int,
@@ -59,14 +69,10 @@ def build_workdays(
     holidays_config: list[dict[str, Any]],
 ) -> list[datetime.date]:
     """指定開始日から、稼働日のみを抽出した日付リストを生成する."""
-    allowed_weekdays = {
-        WEEKDAY_MAP[w.lower()]
-        for w in workdays_config
-        if isinstance(w, str) and w.lower() in WEEKDAY_MAP
-    }
+    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_config if w in WEEKDAY_MAP}
     if not allowed_weekdays:
         raise ValueError("calendar.workdays に有効な稼働曜日が指定されていません。")
-    holiday_dates = {to_date(h["date"]) for h in holidays_config if "date" in h}
+    holiday_dates = parse_holiday_dates(holidays_config)
 
     valid_days: list[datetime.date] = []
     current = start_date
@@ -84,14 +90,10 @@ def count_workdays_between(
     holidays_config: list[dict[str, Any]],
 ) -> int:
     """2つの日付間の稼働日数をカウントする (start <= date < end)."""
-    allowed_weekdays = {
-        WEEKDAY_MAP[w.lower()]
-        for w in workdays_config
-        if isinstance(w, str) and w.lower() in WEEKDAY_MAP
-    }
+    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_config if w in WEEKDAY_MAP}
     if not allowed_weekdays:
         raise ValueError("calendar.workdays に有効な稼働曜日が指定されていません。")
-    holiday_dates = {to_date(h["date"]) for h in holidays_config if "date" in h}
+    holiday_dates = parse_holiday_dates(holidays_config)
 
     count = 0
     curr = start
@@ -257,12 +259,8 @@ def solve_schedule(
     # 納期制約と遅延ペナルティ (FR-8)
     delay: dict[str, cp_model.IntVar] = {}
     first_workday = workdays[0]
-    allowed_weekdays = {
-        WEEKDAY_MAP[w.lower()]
-        for w in workdays_cfg
-        if isinstance(w, str) and w.lower() in WEEKDAY_MAP
-    }
-    holiday_dates = {to_date(h["date"]) for h in holidays_cfg if "date" in h}
+    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_cfg if w in WEEKDAY_MAP}
+    holiday_dates = parse_holiday_dates(holidays_cfg)
 
     for t_id, task in tasks.items():
         deadline_raw = task.get("deadline")
