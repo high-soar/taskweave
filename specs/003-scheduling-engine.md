@@ -5,7 +5,7 @@ description: Python / OR-Tools CP-SAT を用いたスケジューリング計算
 tags: [scheduling, engine, or-tools, milestone-2]
 status: accepted
 issues: [12, 13, 14, 15, 16]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-11T13:14:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-11T13:48:00Z }
 verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
 ---
 
@@ -92,8 +92,8 @@ CP-SAT は整数変数のみを扱うため、実数である工数・稼働上�
 
 1. **稼働日インデックス配列の構築**:
    - プロジェクト開始日（$D_{\text{start}}$）から、稼働日判定ルール（`workdays` および `holidays` を除外）を満たす稼働日を順に抽出し、稼働日インデックス配列 $W = [d_0, d_1, d_2, \dots, d_{H-1}]$ を構築します（計画地平 $H$: デフォルト 30〜60 稼働日）。
-   - 週の稼働日設定（`workdays`）は大文字小文字不問（例: `mon`, `Mon`, `MON`）でパースし、指定外の曜日は非稼働日として扱います。
-   - 祝日一覧（`holidays`）は文字列（`"YYYY-MM-DD"`）および YAML パーサーが生成する日付オブジェクト（`datetime.date`）を同一視して除外対象とします。
+   - 週の稼働日設定（`workdays`）は `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` のいずれかを指定し（`001-yaml-schema` 準拠）、指定外の曜日は非稼働日として扱います。
+   - 祝日一覧（`holidays`）の各項目には `date` フィールドが必須（欠落時は `ValueError`）であり、文字列（`"YYYY-MM-DD"`）および YAML パーサーが生成する日付オブジェクト（`datetime.date`）を同一視して除外対象とします。
 2. **非稼働日開始プロジェクトのハンドリング**:
    - プロジェクト開始日 $D_{\text{start}}$ が週末や祝日などの非稼働日である場合、$W[0]$（初稼働日）は $D_{\text{start}}$ 以降の最初の実稼働日となります。出力の `project_start_date` には指定された $D_{\text{start}}$ を保持しつつ、タスクの `start_date` は $W[0]$ 以降の実稼働日に設定されます。
 3. **ソルバー内部変数と探索空間の分離**:
@@ -277,6 +277,7 @@ $$\min \left( 10000 \times \sum_{t \in T} \text{delay}_t + 100 \times \text{make
     - 2日目: 2026-09-15 (火, 祝日) をスキップし、2026-09-16 (水, 8h) に割り当てられること。
     - 祝日（2026-09-15）には工数が一切割り当てられないこと。
     - YAML で日付がクォートなし（`date: 2026-09-15`）で記述され `datetime.date` オブジェクトとして読み込まれた場合でも正常に祝日としてスキップされること。
+    - 祝日設定の各項目に `date` フィールドが欠落している場合（例: `holidays: [{name: "xxx"}]`）、暗黙に無視せず明示的な `ValueError` を送出すること。
 
 - **受入基準 3 (AC-3: 週末および祝日跨ぎによる自動期間延長)**:
   - **前提 (Given)**:

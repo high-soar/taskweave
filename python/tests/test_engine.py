@@ -357,9 +357,9 @@ def test_scenario_issue13_ac1_non_workdays_skipped(basic_data):
     assert t1["daily_hours"]["2026-09-04"] == 8.0
     assert t1["daily_hours"]["2026-09-07"] == 8.0
 
-    # 2. カスタム稼働日（月・水・金のみ稼働、大文字小文字混在）の検証
+    # 2. カスタム稼働日（月・水・金のみ稼働）の検証
     custom_calendar = {
-        "workdays": ["Mon", "WED", "fri"],
+        "workdays": ["mon", "wed", "fri"],
         "holidays": [],
     }
     mon_start = datetime.date(2026, 9, 7)  # 月曜日
@@ -503,3 +503,13 @@ def test_scenario_issue13_ac4_iso_date_output_and_non_workday_project_start(basi
     assert isinstance(t_deadline["end_date"], str)
 
 
+def test_missing_holiday_date_raises_error(basic_data):
+    """calendar.holidays の項目に date が欠落している場合、ValueError を送出すること (R2)."""
+    members, tasks, _ = basic_data
+    start_date = datetime.date(2026, 9, 1)
+    invalid_cal = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [{"name": "missing date"}],
+    }
+    with pytest.raises(ValueError, match="calendar.holidays の各項目には 'date' フィールドが必須です"):
+        solve_schedule(members, tasks, invalid_cal, start_date)
