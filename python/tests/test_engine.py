@@ -147,7 +147,9 @@ def test_rounding_preserves_hours(basic_data):
     t_info = result["tasks"]["task-rounding"]
     total_hours = sum(t_info["daily_hours"].values())
     assert pytest.approx(total_hours, 0.01) == 2.7
-
+    # 出力の estimate_hours が正規化され、日別合計と完全に一致すること (R1)
+    assert t_info["estimate_hours"] == 2.7
+    assert pytest.approx(total_hours, 0.01) == t_info["estimate_hours"]
 
     # max_capacity: 0.333 (0.333 * 8 = 2.664h -> 2.7h) と estimate_hours: 2.7 の組み合わせ
     custom_members = [
@@ -171,6 +173,70 @@ def test_rounding_preserves_hours(basic_data):
     assert result2["status"] == "OPTIMAL"
     assert result2["tasks"]["task-fit"]["workdays_count"] == 1
     assert result2["tasks"]["task-fit"]["daily_hours"]["2026-09-01"] == 2.7
+
+
+def test_sub_point_one_hours_raises_error(basic_data):
+    """0.1時間未満の工数 (0.04h, 0.05h) が指定された場合、ValueError を送出すること (R1)."""
+    members, _, calendar = basic_data
+    start_date = datetime.date(2026, 9, 1)
+
+    for small_hour in [0.04, 0.05]:
+        tasks = [
+            {
+                "id": "task-tiny",
+                "title": f"微小タスク {small_hour}h",
+                "estimate_hours": small_hour,
+                "required_skills": ["backend"],
+                "depends_on": [],
+            }
+        ]
+        with pytest.raises(ValueError, match="最小単位 \\(0.1h\\) 以上である必要があります"):
+            solve_schedule(members, tasks, calendar, start_date)
+
+
+def test_non_workday_start_deadline_delay_detected(basic_data):
+    """開始日が非稼働日で、納期が初稼働日より前にある場合、遅延が誤検知されず正しく検知されること (R2)."""
+    members, _, calendar = basic_data
+    # 2026-09-05 は土曜日、月〜金稼働なので最初の稼働日は 2026-09-07 (月)
+    start_date = datetime.date(2026, 9, 5)
+
+    # 納期を 2026-09-06 (日) に設定 (工数 8h なので月曜日に完了し、1稼働日遅延する)
+    tasks = [
+        {
+            "id": "task-weekend",
+            "title": "週末開始タスク",
+            "estimate_hours": 8.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2026-09-06",
+        }
+    ]
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+    t_info = result["tasks"]["task-weekend"]
+
+    # 2026-09-07 (月) に完了
+    assert t_info["end_date"] == "2026-09-07"
+    # 直前の稼働日は 2026-09-04 (金) のため、月曜完了は 1 稼働日遅延
+    assert t_info["delay_days"] == 1
+    assert result["diagnostics"]["is_deadline_violated"] is True
+    assert len(result["diagnostics"]["delayed_tasks"]) == 1
+    assert result["diagnostics"]["delayed_tasks"][0]["delay_workdays"] == 1
+
+
+def test_empty_workdays_raises_error(basic_data):
+    """calendar.workdays が空の場合、無限ループせず ValueError を送出すること (R3)."""
+    members, tasks, _ = basic_data
+    start_date = datetime.date(2026, 9, 1)
+
+    empty_cal = {
+        "workdays": [],
+        "holidays": [],
+    }
+
+    with pytest.raises(ValueError, match="calendar.workdays に有効な稼働曜日が指定されていません"):
+        solve_schedule(members, tasks, empty_cal, start_date)
 
 
 def test_undefined_dependency_raises_error(basic_data):

@@ -153,10 +153,10 @@ export function validateTasks(yamlString) {
     if (
       typeof t.estimate_hours !== "number" ||
       !Number.isFinite(t.estimate_hours) ||
-      t.estimate_hours <= 0
+      t.estimate_hours < 0.1
     ) {
       errors.push(
-        `${prefix}.estimate_hours: 0 より大きい有限な正の数値である必要があります`,
+        `${prefix}.estimate_hours: 0.1 以上の有限な正の数値である必要があります`,
       );
     }
 
@@ -229,6 +229,10 @@ export function validateCalendar(yamlString) {
     ) {
       errors.push(
         "calendar.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります",
+      );
+    } else if (cal.workdays.length === 0) {
+      errors.push(
+        "calendar.workdays: 少なくとも1つの有効な稼働曜日を指定する必要があります",
       );
     } else {
       const seenWorkdays = new Set();

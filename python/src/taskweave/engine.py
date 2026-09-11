@@ -52,7 +52,9 @@ def build_workdays(
     holidays_config: list[dict[str, str]],
 ) -> list[datetime.date]:
     """指定開始日から、稼働日のみを抽出した日付リストを生成する."""
-    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_config}
+    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_config if w in WEEKDAY_MAP}
+    if not allowed_weekdays:
+        raise ValueError("calendar.workdays に有効な稼働曜日が指定されていません。")
     holiday_dates = {datetime.date.fromisoformat(h["date"]) for h in holidays_config}
 
     valid_days: list[datetime.date] = []
@@ -71,7 +73,9 @@ def count_workdays_between(
     holidays_config: list[dict[str, str]],
 ) -> int:
     """2つの日付間の稼働日数をカウントする (start <= date < end)."""
-    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_config}
+    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_config if w in WEEKDAY_MAP}
+    if not allowed_weekdays:
+        raise ValueError("calendar.workdays に有効な稼働曜日が指定されていません。")
     holiday_dates = {datetime.date.fromisoformat(h["date"]) for h in holidays_config}
 
     count = 0
@@ -125,8 +129,13 @@ def solve_schedule(
     tasks = {t["id"]: t for t in tasks_data}
     task_ids = list(tasks.keys())
 
-    # 未定義依存タスクの検証 (FR-10)
+    # タスク工数の最小単位検証および未定義依存タスクの検証 (FR-10)
     for t_id, task in tasks.items():
+        t_est = round(task.get("estimate_hours", 0) * scale)
+        if t_est < 1:
+            raise ValueError(
+                f"タスク '{t_id}' の見積工数 ({task.get('estimate_hours')}h) は最小単位 (0.1h) 以上である必要があります。"
+            )
         for dep_id in task.get("depends_on", []):
             if dep_id not in tasks:
                 raise ValueError(
@@ -234,18 +243,27 @@ def solve_schedule(
 
     # 納期制約と遅延ペナルティ (FR-8)
     delay: dict[str, cp_model.IntVar] = {}
+    first_workday = workdays[0]
+    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_cfg if w in WEEKDAY_MAP}
+    holiday_dates = {datetime.date.fromisoformat(h["date"]) for h in holidays_cfg}
+
     for t_id, task in tasks.items():
         deadline_str = task.get("deadline")
         if force_infeasible_deadline:
             target_deadline_day = 1
         elif deadline_str:
             d_date = datetime.date.fromisoformat(deadline_str)
-            if d_date < start_date:
-                workdays_before = count_workdays_between(d_date, start_date, workdays_cfg, holidays_cfg)
-                target_deadline_day = -workdays_before
-            else:
+            if d_date >= first_workday:
                 matching = [idx for idx, d in enumerate(workdays) if d <= d_date]
                 target_deadline_day = max(matching) if matching else 0
+            else:
+                # 最初の稼働日より前の納期（開始日が非稼働日の場合や過去納期）:
+                # d_date 以前の直近稼働日を求め、そこから first_workday までの稼働日数差を負のインデックスとする
+                curr = d_date
+                while curr.weekday() not in allowed_weekdays or curr in holiday_dates:
+                    curr -= datetime.timedelta(days=1)
+                workdays_before = count_workdays_between(curr, first_workday, workdays_cfg, holidays_cfg)
+                target_deadline_day = -workdays_before
         else:
             target_deadline_day = horizon_days - 1
 
@@ -301,13 +319,16 @@ def solve_schedule(
             s_idx = min(active_days) if active_days else solver.Value(start_day[t_id])
             e_idx = max(active_days) if active_days else solver.Value(end_day[t_id])
 
+            t_est = round(tasks[t_id]["estimate_hours"] * scale)
+            normalized_estimate = round(t_est / scale, 1)
+
             result["tasks"][t_id] = {
                 "assigned_to": assigned_m,
                 "start_date": workdays[s_idx].isoformat(),
                 "end_date": workdays[e_idx].isoformat(),
                 "workdays_count": e_idx - s_idx + 1,
                 "actual_active_days": len(active_days),
-                "estimate_hours": float(tasks[t_id]["estimate_hours"]),
+                "estimate_hours": normalized_estimate,
                 "daily_hours": daily_breakdown,
                 "deadline": tasks[t_id].get("deadline"),
                 "delay_days": d_val,

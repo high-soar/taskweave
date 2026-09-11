@@ -146,6 +146,27 @@ tasks:
     estimate_hours: "five"
 `;
       assert.equal(validateTasks(yamlString).valid, false);
+
+      // 0.1時間未満 (0.04, 0.05) の工数拒否
+      const yamlSubPointOne = `
+tasks:
+  - id: "t3"
+    title: "Too small hours 0.04"
+    estimate_hours: 0.04
+`;
+      const resultSub1 = validateTasks(yamlSubPointOne);
+      assert.equal(resultSub1.valid, false);
+      assert.ok(resultSub1.errors.some((e) => e.includes("0.1 以上")));
+
+      const yamlPointZeroFive = `
+tasks:
+  - id: "t4"
+    title: "Too small hours 0.05"
+    estimate_hours: 0.05
+`;
+      const resultSub2 = validateTasks(yamlPointZeroFive);
+      assert.equal(resultSub2.valid, false);
+      assert.ok(resultSub2.errors.some((e) => e.includes("0.1 以上")));
     });
 
     it("タスクの deadline が不正な日付形式の場合にエラーを検知すること", () => {
@@ -169,6 +190,18 @@ calendar:
       const result = validateCalendar(yaml);
       assert.equal(result.valid, false);
       assert.ok(result.errors.some((e) => e.includes("workdays")));
+    });
+
+    it("calendar の workdays が空配列の場合にエラーを検知すること", () => {
+      const yaml = `
+calendar:
+  workdays: []
+`;
+      const result = validateCalendar(yaml);
+      assert.equal(result.valid, false);
+      assert.ok(
+        result.errors.some((e) => e.includes("少なくとも1つの有効な稼働曜日")),
+      );
     });
 
     it("id が重複している場合にエラーを検知すること", () => {
