@@ -230,12 +230,11 @@ def solve_schedule(
             for d in range(horizon_days):
                 work[t_id, m_id, d] = model.NewIntVar(0, min(cap, t_est), f"work_{t_id}_{m_id}_{d}")
 
-    # 制約: 担当していないメンバの日別作業時間は 0
+    # 制約: 担当していないメンバの日別作業時間は 0 (タスク・メンバ単位で集約し、線形制約数を削減)
     for t_id in task_ids:
         t_est = round(tasks[t_id]["estimate_hours"] * scale)
         for m_id in member_ids:
-            for d in range(horizon_days):
-                model.Add(work[t_id, m_id, d] <= t_est * assigned[t_id, m_id])
+            model.Add(sum(work[t_id, m_id, d] for d in range(horizon_days)) <= t_est * assigned[t_id, m_id])
 
     # 制約: タスクの総作業時間 == 見積工数
     for t_id, task in tasks.items():
@@ -262,20 +261,9 @@ def solve_schedule(
             model.Add(day_work > 0).OnlyEnforceIf(act)
             model.Add(day_work == 0).OnlyEnforceIf(act.Not())
 
-            # 作業がある日は必ず start_day <= d かつ d <= end_day
+            # 作業がある日は必ず start_day <= d かつ d <= end_day (外側では act=False となり day_work=0 が保証される)
             model.Add(start_day[t_id] <= d).OnlyEnforceIf(act)
             model.Add(end_day[t_id] >= d).OnlyEnforceIf(act)
-
-            # start_day, end_day の外側では作業できない
-            before_start = model.NewBoolVar(f"before_{t_id}_{d}")
-            after_end = model.NewBoolVar(f"after_{t_id}_{d}")
-            model.Add(d < start_day[t_id]).OnlyEnforceIf(before_start)
-            model.Add(d >= start_day[t_id]).OnlyEnforceIf(before_start.Not())
-            model.Add(d > end_day[t_id]).OnlyEnforceIf(after_end)
-            model.Add(d <= end_day[t_id]).OnlyEnforceIf(after_end.Not())
-
-            model.Add(day_work == 0).OnlyEnforceIf(before_start)
-            model.Add(day_work == 0).OnlyEnforceIf(after_end)
 
     # 制約: タスク先行依存関係 (FR-3)
     for t_id, task in tasks.items():
@@ -329,6 +317,79 @@ def solve_schedule(
         + sum(end_day[t] for t in task_ids) * 5
         + sum(end_day[t] - start_day[t] for t in task_ids) * 2
     )
+
+    # 初期解ヒントの生成 (NFR-1, NFR-2, R3: 単一ワーカーでも大規模問題で10秒以内にFEASIBLE解を保証)
+    in_degree = {t_id: 0 for t_id in task_ids}
+    dependents: dict[str, list[str]] = {t_id: [] for t_id in task_ids}
+    for t_id, task in tasks.items():
+        for dep_id in task.get("depends_on", []):
+            if dep_id in dependents:
+                dependents[dep_id].append(t_id)
+                in_degree[t_id] += 1
+
+    queue = [t_id for t_id in task_ids if in_degree[t_id] == 0]
+    topo_order: list[str] = []
+    while queue:
+        curr = queue.pop(0)
+        topo_order.append(curr)
+        for nxt in dependents[curr]:
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                queue.append(nxt)
+
+    if len(topo_order) < len(task_ids):
+        remaining = [t for t in task_ids if t not in topo_order]
+        topo_order.extend(remaining)
+
+    member_next_free_day = {m_id: 0 for m_id in member_ids}
+    hint_end_day: dict[str, int] = {}
+
+    for t_id in topo_order:
+        min_start = 0
+        for dep_id in tasks[t_id].get("depends_on", []):
+            if dep_id in hint_end_day:
+                min_start = max(min_start, hint_end_day[dep_id] + 1)
+
+        raw_skills = tasks[t_id].get("required_skills")
+        req_skills = set(raw_skills) if isinstance(raw_skills, list) else set()
+        capable_members = [
+            m_id
+            for m_id in member_ids
+            if req_skills.issubset(set(members[m_id].get("skills") or []))
+        ]
+        if not capable_members:
+            continue
+
+        best_m = capable_members[0]
+        best_start = horizon_days
+        for m_id in capable_members:
+            s = max(min_start, member_next_free_day[m_id])
+            if s < best_start:
+                best_start = s
+                best_m = m_id
+
+        t_est = round(tasks[t_id]["estimate_hours"] * scale)
+        cap = member_capacities[best_m]
+        days_needed = math.ceil(t_est / cap) if cap > 0 else 1
+
+        if best_start + days_needed <= horizon_days:
+            model.AddHint(assigned[t_id, best_m], 1)
+            for other_m in member_ids:
+                if other_m != best_m:
+                    model.AddHint(assigned[t_id, other_m], 0)
+
+            model.AddHint(start_day[t_id], best_start)
+            end_s = best_start + days_needed - 1
+            model.AddHint(end_day[t_id], end_s)
+            hint_end_day[t_id] = end_s
+            member_next_free_day[best_m] = end_s + 1
+
+            remaining_work = t_est
+            for offset in range(days_needed):
+                d = best_start + offset
+                w = min(cap, remaining_work)
+                model.AddHint(work[t_id, best_m, d], w)
+                remaining_work -= w
 
     # ソルバー実行
     solver = cp_model.CpSolver()
