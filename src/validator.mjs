@@ -430,25 +430,29 @@ export function validateLogicalIntegrity(members, tasks) {
 
   // 3. 未定義スキル参照チェック (Undefined Skill Reference)
   if (Array.isArray(members)) {
-    const teamSkills = new Set();
-    for (const m of members) {
-      if (Array.isArray(m?.skills)) {
-        for (const s of m.skills) {
-          if (typeof s === "string") teamSkills.add(s);
-        }
-      }
-    }
+    const memberSkillSets = members
+      .filter((m) => m && Array.isArray(m.skills))
+      .map((m) => new Set(m.skills.filter((s) => typeof s === "string")));
 
     for (let i = 0; i < tasks.length; i++) {
       const t = tasks[i];
-      if (!t || !Array.isArray(t.required_skills)) continue;
-      for (let s = 0; s < t.required_skills.length; s++) {
-        const skill = t.required_skills[s];
-        if (typeof skill === "string" && !teamSkills.has(skill)) {
-          errors.push(
-            `tasks[${i}].required_skills[${s}]: タスク "${t.id}" の必須スキル "${skill}" を保有するメンバが存在しません。解決のヒント: members.yaml の skills にスキルを追加するか、タスクの必須スキルを見直してください`,
-          );
-        }
+      if (
+        !t ||
+        !Array.isArray(t.required_skills) ||
+        t.required_skills.length === 0
+      )
+        continue;
+      const reqSkills = t.required_skills.filter((s) => typeof s === "string");
+      if (reqSkills.length === 0) continue;
+
+      const hasCapableMember = memberSkillSets.some((skillSet) =>
+        reqSkills.every((s) => skillSet.has(s)),
+      );
+
+      if (!hasCapableMember) {
+        errors.push(
+          `tasks[${i}].required_skills: タスク "${t.id}" の必須スキル [${reqSkills.join(", ")}] をすべて保有するメンバが存在しません。解決のヒント: members.yaml の skills にスキルを追加するか、タスクの必須スキルを見直してください`,
+        );
       }
     }
   }

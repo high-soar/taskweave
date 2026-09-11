@@ -592,14 +592,17 @@ def test_scenario_issue14_ac2_multi_candidate_workload_distribution(basic_data):
 
 
 def test_scenario_issue14_ac3_empty_or_omitted_required_skills(basic_data):
-    """AC-3: required_skills が空、未指定、または null のタスクは全メンバが担当候補となること."""
+    """AC-3: required_skills が空または未指定のタスクは全メンバが担当候補となり、最適に配分されること."""
     members, _, calendar = basic_data
+    # Alice: max_capacity 1.0 (8h/日), Bob: max_capacity 0.8 (6.4h/日)
     start_date = datetime.date(2026, 9, 1)
 
+    # 1. 独立した2つのスキル制約なしタスク（空配列と未指定）が両メンバに並行配分されること
+    # (片方に限定されていれば sequential に 2日かかるが、全メンバ候補なら並行配分され Makespan 1日になる)
     custom_tasks = [
         {
             "id": "task-empty-skills",
-            "title": "空スキルタスク",
+            "title": "空配列スキルタスク",
             "estimate_hours": 8.0,
             "required_skills": [],
             "depends_on": [],
@@ -610,28 +613,67 @@ def test_scenario_issue14_ac3_empty_or_omitted_required_skills(basic_data):
             "estimate_hours": 6.4,
             "depends_on": [],
         },
-        {
-            "id": "task-none-skills",
-            "title": "nullスキルタスク",
-            "estimate_hours": 8.0,
-            "required_skills": None,
-            "depends_on": [],
-        },
     ]
 
     res = solve_schedule(members, custom_tasks, calendar, start_date)
     assert res["status"] == "OPTIMAL"
 
-    valid_member_ids = {m["id"] for m in members}
-    for t_id in ["task-empty-skills", "task-omitted-skills", "task-none-skills"]:
-        assigned = res["tasks"][t_id]["assigned_to"]
-        assert assigned in valid_member_ids
-        total_hours = sum(res["tasks"][t_id]["daily_hours"].values())
-        assert pytest.approx(total_hours, 0.01) == res["tasks"][t_id]["estimate_hours"]
+    assigned_empty = res["tasks"]["task-empty-skills"]["assigned_to"]
+    assigned_omitted = res["tasks"]["task-omitted-skills"]["assigned_to"]
+    # 両メンバに分散して割り当てられていること（特定メンバに偏らない）
+    assert {assigned_empty, assigned_omitted} == {"alice", "bob"}
+    assert res["makespan_workdays"] == 1
+    assert res["tasks"]["task-empty-skills"]["start_date"] == "2026-09-01"
+    assert res["tasks"]["task-omitted-skills"]["start_date"] == "2026-09-01"
+
+    # 2. Alice 限定タスクが存在するとき、スキル空タスクが Bob に割り当てられること (Bob が候補であることを直接証明)
+    tasks_alice_busy = [
+        {
+            "id": "task-frontend-only",
+            "title": "Alice専用タスク",
+            "estimate_hours": 8.0,
+            "required_skills": ["frontend"],
+            "depends_on": [],
+        },
+        {
+            "id": "task-open-to-bob",
+            "title": "誰でもよいタスク",
+            "estimate_hours": 6.4,
+            "required_skills": [],
+            "depends_on": [],
+        },
+    ]
+    res2 = solve_schedule(members, tasks_alice_busy, calendar, start_date)
+    assert res2["status"] == "OPTIMAL"
+    assert res2["tasks"]["task-frontend-only"]["assigned_to"] == "alice"
+    assert res2["tasks"]["task-open-to-bob"]["assigned_to"] == "bob"
+    assert res2["makespan_workdays"] == 1
+
+    # 3. Bob 限定タスクが存在するとき、未指定タスクが Alice に割り当てられること (Alice が候補であることを直接証明)
+    tasks_bob_busy = [
+        {
+            "id": "task-devops-only",
+            "title": "Bob専用タスク",
+            "estimate_hours": 6.4,
+            "required_skills": ["devops"],
+            "depends_on": [],
+        },
+        {
+            "id": "task-open-to-alice",
+            "title": "未指定タスク",
+            "estimate_hours": 8.0,
+            "depends_on": [],
+        },
+    ]
+    res3 = solve_schedule(members, tasks_bob_busy, calendar, start_date)
+    assert res3["status"] == "OPTIMAL"
+    assert res3["tasks"]["task-devops-only"]["assigned_to"] == "bob"
+    assert res3["tasks"]["task-open-to-alice"]["assigned_to"] == "alice"
+    assert res3["makespan_workdays"] == 1
 
 
 def test_scenario_issue14_ac4_unfulfillable_skills_raises_error(basic_data):
-    """AC-4: 必須スキルを充足するメンバがチーム内に不在の場合、ValueError を送出すること."""
+    """AC-4: 必須スキルを充足するメンバがチーム内に不在の場合、および不正型の場合に ValueError を送出すること."""
     members, _, calendar = basic_data
     # Alice: [frontend, backend], Bob: [backend, devops]
     start_date = datetime.date(2026, 9, 1)
@@ -662,4 +704,30 @@ def test_scenario_issue14_ac4_unfulfillable_skills_raises_error(basic_data):
     ]
     with pytest.raises(ValueError, match="必須スキル.*保有するメンバが.*存在しません"):
         solve_schedule(members, task_impossible_combo, calendar, start_date)
+
+    # 3. 明示的な null は 001-yaml-schema と同様に拒否されること (R1)
+    task_null_skills = [
+        {
+            "id": "task-null-skills",
+            "title": "nullスキルタスク",
+            "estimate_hours": 8.0,
+            "required_skills": None,
+            "depends_on": [],
+        }
+    ]
+    with pytest.raises(ValueError, match="required_skills.*null は不可"):
+        solve_schedule(members, task_null_skills, calendar, start_date)
+
+    # 4. 配列以外の不正な型（文字列など）が指定された場合も ValueError となること
+    task_invalid_type_skills = [
+        {
+            "id": "task-invalid-type",
+            "title": "型不正スキルタスク",
+            "estimate_hours": 8.0,
+            "required_skills": "backend",
+            "depends_on": [],
+        }
+    ]
+    with pytest.raises(ValueError, match="required_skills は文字列のリストである必要があります"):
+        solve_schedule(members, task_invalid_type_skills, calendar, start_date)
 
