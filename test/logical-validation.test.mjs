@@ -223,6 +223,37 @@ describe("Logical Integrity Validation (001-yaml-schema Scenario 5)", () => {
         `期待する未定義スキルエラーが含まれていません: ${JSON.stringify(result.errors)}`,
       );
     });
+
+    it("個別スキルはチーム内に存在するが、単一メンバで兼任できない複数スキル要求を検知すること", () => {
+      // validMembers: alice [frontend, backend], bob [backend, devops]
+      const tasks = [
+        {
+          id: "task-split-skills",
+          title: "兼任不能スキルタスク",
+          estimate_hours: 8,
+          required_skills: ["frontend", "devops"],
+          depends_on: [],
+          deadline: null,
+        },
+      ];
+
+      const result = validateLogicalIntegrity(
+        validMembers,
+        tasks,
+        validCalendar,
+      );
+      assert.equal(result.valid, false);
+      assert.ok(
+        result.errors.some(
+          (err) =>
+            err.includes("task-split-skills") &&
+            err.includes("frontend") &&
+            err.includes("devops") &&
+            (err.includes("保有") || err.includes("メンバ")),
+        ),
+        `期待する兼任不能スキルエラーが含まれていません: ${JSON.stringify(result.errors)}`,
+      );
+    });
   });
 
   describe("AC-4: 診断メッセージと解決ヒント", () => {
