@@ -945,3 +945,103 @@ def test_scenario_issue15_multiple_delayed_tasks(basic_data):
     assert rec_ids == {"task-1", "task-2"}
 
 
+def test_feasible_solution_delay_consistent_with_end_date(basic_data):
+    """[R1回帰テスト]: 終了日が deadline 当日またはそれ以前のタスクは delay_days: 0 となり誤検出されないこと."""
+    members, _, calendar = basic_data
+    # 複数タスク構成で FEASIBLE または解探索中にタスクの終了日が deadline 当日に収まるケース
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    tasks = [
+        {
+            "id": "t1",
+            "title": "Task 1",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2026-09-02",  # 2日目の終了時に完了可能
+        },
+        {
+            "id": "t2",
+            "title": "Task 2 (deadline 当日完了)",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": ["t1"],
+            "deadline": "2026-09-04",  # 4日目 (9/4 金) の終了時に完了可能
+        },
+        {
+            "id": "t3",
+            "title": "Task 3 (遅延タスク)",
+            "estimate_hours": 24.0,
+            "required_skills": ["backend"],
+            "depends_on": ["t2"],
+            "deadline": "2026-09-04",  # t2完了後なので明らかに遅延
+        },
+    ]
+
+    # Alice のみで実行
+    alice_only = [m for m in members if m["id"] == "alice"]
+    res = solve_schedule(alice_only, tasks, calendar, start_date)
+    assert res["status"] in ("OPTIMAL", "FEASIBLE")
+
+    t1 = res["tasks"]["t1"]
+    t2 = res["tasks"]["t2"]
+    t3 = res["tasks"]["t3"]
+
+    # t1, t2 は deadline 当日またはそれ以前に完了
+    assert t1["end_date"] <= t1["deadline"]
+    assert t1["delay_days"] == 0
+
+    assert t2["end_date"] <= t2["deadline"]
+    assert t2["delay_days"] == 0
+
+    # delayed_tasks および recommendations に t1, t2 が誤って含まれないこと (R1)
+    delayed_task_ids = [d["task_id"] for d in res["diagnostics"]["delayed_tasks"]]
+    assert "t1" not in delayed_task_ids
+    assert "t2" not in delayed_task_ids
+    assert "t3" in delayed_task_ids
+
+    rec_task_ids = [r["task_id"] for r in res["diagnostics"]["recommendations"]]
+    assert "t1" not in rec_task_ids
+    assert "t2" not in rec_task_ids
+    assert "t3" in rec_task_ids
+
+
+def test_deterministic_reproducibility_multiple_runs(basic_data):
+    """[R2テスト]: 同一入力に対し、単一ワーカー設定 (num_search_workers=1) により常に決定論的に同一の解を返すこと (NFR-2)."""
+    members, _, calendar = basic_data
+    start_date = datetime.date(2026, 9, 1)
+
+    # 複数メンバ・多タスクの構成
+    tasks = []
+    for i in range(15):
+        tasks.append(
+            {
+                "id": f"task-{i}",
+                "title": f"Task {i}",
+                "estimate_hours": 8.0,
+                "required_skills": ["backend"],
+                "depends_on": [f"task-{i-1}"] if i > 0 and i % 3 != 0 else [],
+                "deadline": "2026-09-04" if i == 2 else None,
+            }
+        )
+
+    # 3回実行してすべての結果が完全に一致することを検証
+    runs = [solve_schedule(members, tasks, calendar, start_date, horizon_days=30) for _ in range(3)]
+
+    for i in range(1, 3):
+        assert runs[i]["status"] == runs[0]["status"]
+        assert runs[i]["makespan_workdays"] == runs[0]["makespan_workdays"]
+        assert runs[i]["diagnostics"]["is_deadline_violated"] == runs[0]["diagnostics"]["is_deadline_violated"]
+        assert runs[i]["diagnostics"]["total_delay_workdays"] == runs[0]["diagnostics"]["total_delay_workdays"]
+
+        for t_id in [f"task-{j}" for j in range(15)]:
+            t_curr = runs[i]["tasks"][t_id]
+            t_base = runs[0]["tasks"][t_id]
+            assert t_curr["assigned_to"] == t_base["assigned_to"]
+            assert t_curr["start_date"] == t_base["start_date"]
+            assert t_curr["end_date"] == t_base["end_date"]
+            assert t_curr["delay_days"] == t_base["delay_days"]
+            assert t_curr["daily_hours"] == t_base["daily_hours"]
+
+
+

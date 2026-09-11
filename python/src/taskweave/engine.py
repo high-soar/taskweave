@@ -312,7 +312,11 @@ def solve_schedule(
         task_deadline_days[t_id] = target_deadline_day
         task_max_delay = max(horizon_days, (horizon_days - 1) - target_deadline_day)
         delay[t_id] = model.NewIntVar(0, task_max_delay, f"delay_{t_id}")
-        model.Add(delay[t_id] >= end_day[t_id] - target_deadline_day)
+
+        # [R1]: delay[t_id] を max(0, end_day[t_id] - target_deadline_day) と等値化
+        diff = model.NewIntVar(-task_max_delay, task_max_delay, f"diff_{t_id}")
+        model.Add(diff == end_day[t_id] - target_deadline_day)
+        model.AddMaxEquality(delay[t_id], [0, diff])
 
     # 目的関数 (FR-7, FR-9):
     makespan = model.NewIntVar(0, horizon_days, "makespan")
@@ -329,6 +333,7 @@ def solve_schedule(
     # ソルバー実行
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 10.0
+    solver.parameters.num_search_workers = 1  # 決定論的再現性 (NFR-2, 単一ワーカーで探索順序を決定論化)
     solver.parameters.random_seed = 42  # 決定論的再現性 (NFR-2)
     status = solver.Solve(model)
 
@@ -351,7 +356,6 @@ def solve_schedule(
 
         for t_id in task_ids:
             assigned_m = [m_id for m_id in member_ids if solver.Value(assigned[t_id, m_id]) == 1][0]
-            d_val = solver.Value(delay[t_id])
 
             daily_breakdown: dict[str, float] = {}
             active_days: list[int] = []
@@ -369,6 +373,13 @@ def solve_schedule(
             raw_deadline = tasks[t_id].get("deadline")
             normalized_deadline = to_date(raw_deadline).isoformat() if raw_deadline else None
 
+            # [R1]: 実際の終了インデックス e_idx と deadline_day_val から正確な遅延日数を算出
+            deadline_day_val = task_deadline_days.get(t_id, horizon_days - 1)
+            if raw_deadline is not None:
+                actual_delay = max(0, e_idx - deadline_day_val)
+            else:
+                actual_delay = 0
+
             result["tasks"][t_id] = {
                 "assigned_to": assigned_m,
                 "start_date": workdays[s_idx].isoformat(),
@@ -378,14 +389,12 @@ def solve_schedule(
                 "estimate_hours": normalized_estimate,
                 "daily_hours": daily_breakdown,
                 "deadline": normalized_deadline,
-                "delay_days": d_val,
+                "delay_days": actual_delay,
             }
-            if d_val > 0:
+            if actual_delay > 0:
                 result["diagnostics"]["is_deadline_violated"] = True
 
                 # 遅延原因（ボトルネック）の診断 (FR-8, Issue #15)
-                deadline_day_val = task_deadline_days.get(t_id, horizon_days - 1)
-
                 reasons: list[str] = []
                 if deadline_day_val < 0:
                     reasons.append(f"納期 ({normalized_deadline}) がプロジェクト開始日以前に設定されている")
@@ -408,15 +417,15 @@ def solve_schedule(
                         reasons.append("担当メンバのリソース競合または日別稼働上限")
 
                 reason_text = (
-                    "および".join(reasons) + f"により納期 ({normalized_deadline}) を {d_val} 稼働日超過"
+                    "および".join(reasons) + f"により納期 ({normalized_deadline}) を {actual_delay} 稼働日超過"
                     if reasons
-                    else f"制約充足により納期 ({normalized_deadline}) を {d_val} 稼働日超過"
+                    else f"制約充足により納期 ({normalized_deadline}) を {actual_delay} 稼働日超過"
                 )
 
                 result["diagnostics"]["delayed_tasks"].append(
                     {
                         "task_id": t_id,
-                        "delay_workdays": d_val,
+                        "delay_workdays": actual_delay,
                         "deadline": normalized_deadline,
                         "projected_end_date": workdays[e_idx].isoformat(),
                         "reason": reason_text,
@@ -427,7 +436,7 @@ def solve_schedule(
                         "task_id": t_id,
                         "action": "extend_deadline",
                         "recommended_deadline": workdays[e_idx].isoformat(),
-                        "additional_workdays_needed": d_val,
+                        "additional_workdays_needed": actual_delay,
                     }
                 )
 
