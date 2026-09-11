@@ -326,3 +326,180 @@ def test_extremely_past_deadline_handled_without_infeasible(basic_data):
     assert result["diagnostics"]["is_deadline_violated"] is True
     assert result["diagnostics"]["delayed_tasks"][0]["task_id"] == "task-ancient-deadline"
 
+
+# ==============================================================================
+# Issue #13: チームカレンダー（祝日・非稼働日）を考慮した実稼働日スケジュール計算
+# ==============================================================================
+
+
+def test_scenario_issue13_ac1_non_workdays_skipped(basic_data):
+    """AC-1: 週の非稼働日（デフォルト土日、または workdays 外の曜日）には工数が割り当てられないこと."""
+    members, _, calendar = basic_data
+
+    # 1. デフォルト土日スキップ検証 (金曜開始の16hタスク)
+    friday_start = datetime.date(2026, 9, 4)  # 金曜日
+    task_span_weekend = [
+        {
+            "id": "task-weekend-skip",
+            "title": "週末スキップタスク",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+        }
+    ]
+    res1 = solve_schedule(members, task_span_weekend, calendar, friday_start)
+    assert res1["status"] == "OPTIMAL"
+    t1 = res1["tasks"]["task-weekend-skip"]
+    assert t1["start_date"] == "2026-09-04"  # 金
+    assert t1["end_date"] == "2026-09-07"    # 月
+    assert "2026-09-05" not in t1["daily_hours"]  # 土
+    assert "2026-09-06" not in t1["daily_hours"]  # 日
+    assert t1["daily_hours"]["2026-09-04"] == 8.0
+    assert t1["daily_hours"]["2026-09-07"] == 8.0
+
+    # 2. カスタム稼働日（月・水・金のみ稼働、大文字小文字混在）の検証
+    custom_calendar = {
+        "workdays": ["Mon", "WED", "fri"],
+        "holidays": [],
+    }
+    mon_start = datetime.date(2026, 9, 7)  # 月曜日
+    res2 = solve_schedule(members, task_span_weekend, custom_calendar, mon_start)
+    assert res2["status"] == "OPTIMAL"
+    t2 = res2["tasks"]["task-weekend-skip"]
+    assert t2["start_date"] == "2026-09-07"  # 月
+    assert t2["end_date"] == "2026-09-09"    # 水 (火曜日は非稼働のためスキップ)
+    assert "2026-09-08" not in t2["daily_hours"]  # 火 (非稼働日)
+    assert t2["daily_hours"]["2026-09-07"] == 8.0
+    assert t2["daily_hours"]["2026-09-09"] == 8.0
+
+    # メンバ日別工数にも火曜日の割当が一切ないこと
+    for m_id, days in res2["member_daily_work"].items():
+        assert "2026-09-08" not in days
+
+
+def test_scenario_issue13_ac2_holidays_skipped(basic_data):
+    """AC-2: calendar.yaml に定義された祝日・特別休暇（holidays）には工数が割り当てられないこと."""
+    members, _, calendar = basic_data
+
+    # 1. basic calendar の祝日 2026-09-15 (火) スキップ検証
+    mon_start = datetime.date(2026, 9, 14)  # 月曜日
+    task_span_holiday = [
+        {
+            "id": "task-holiday-skip",
+            "title": "祝日スキップタスク",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+        }
+    ]
+    res1 = solve_schedule(members, task_span_holiday, calendar, mon_start)
+    assert res1["status"] == "OPTIMAL"
+    t1 = res1["tasks"]["task-holiday-skip"]
+    assert t1["start_date"] == "2026-09-14"  # 月
+    assert t1["end_date"] == "2026-09-16"    # 水 (火曜日は祝日のためスキップ)
+    assert "2026-09-15" not in t1["daily_hours"]  # 祝日
+    assert t1["daily_hours"]["2026-09-14"] == 8.0
+    assert t1["daily_hours"]["2026-09-16"] == 8.0
+
+    # 2. PyYAML の非クォート日付 (datetime.date オブジェクト) および連続祝日
+    consecutive_holidays_cal = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [
+            {"date": datetime.date(2026, 9, 21), "name": "敬老の日"},
+            {"date": datetime.date(2026, 9, 22), "name": "国民の休日"},
+        ],
+    }
+    fri_start = datetime.date(2026, 9, 18)  # 金曜日
+    res2 = solve_schedule(members, task_span_holiday, consecutive_holidays_cal, fri_start)
+    assert res2["status"] == "OPTIMAL"
+    t2 = res2["tasks"]["task-holiday-skip"]
+    # 金曜(9/18) -> 土(9/19)・日(9/20)・月(9/21祝)・火(9/22祝) をスキップ -> 水(9/23)
+    assert t2["start_date"] == "2026-09-18"
+    assert t2["end_date"] == "2026-09-23"
+    assert "2026-09-21" not in t2["daily_hours"]
+    assert "2026-09-22" not in t2["daily_hours"]
+
+
+def test_scenario_issue13_ac3_span_across_weekend_and_holidays(basic_data):
+    """AC-3: タスクが非稼働日（週末・祝日）を跨ぐ場合、実稼働日のみで所要見積工数が満たされるように期間が自動延長されること."""
+    members, _, calendar = basic_data
+
+    # 金曜開始、24h (3稼働日)、火曜 2026-09-15 が祝日
+    fri_start = datetime.date(2026, 9, 11)  # 金曜日
+    task_long = [
+        {
+            "id": "task-spanning",
+            "title": "週末と祝日を跨ぐ3日タスク",
+            "estimate_hours": 24.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+        }
+    ]
+
+    result = solve_schedule(members, task_long, calendar, fri_start)
+    assert result["status"] == "OPTIMAL"
+    t_info = result["tasks"]["task-spanning"]
+
+    # 稼働日は 金(9/11), 月(9/14), 水(9/16) の3日間
+    # スキップ: 土(9/12), 日(9/13), 火(9/15祝)
+    assert t_info["start_date"] == "2026-09-11"
+    assert t_info["end_date"] == "2026-09-16"
+    assert t_info["workdays_count"] == 3
+    assert t_info["estimate_hours"] == 24.0
+    assert t_info["daily_hours"] == {
+        "2026-09-11": 8.0,
+        "2026-09-14": 8.0,
+        "2026-09-16": 8.0,
+    }
+
+    # カレンダー期間は 2026-09-11 から 2026-09-16 までの計 6 日間に自動延長されていること
+    start_d = datetime.date.fromisoformat(t_info["start_date"])
+    end_d = datetime.date.fromisoformat(t_info["end_date"])
+    calendar_days_span = (end_d - start_d).days + 1
+    assert calendar_days_span == 6
+
+
+def test_scenario_issue13_ac4_iso_date_output_and_non_workday_project_start(basic_data):
+    """AC-4: スケジュール結果の開始日・終了日が正確な実カレンダー日付（YYYY-MM-DD）で出力されること."""
+    members, tasks, calendar = basic_data
+
+    # 1. 週末（土曜日: 2026-09-12）を開始日に指定した場合
+    sat_start = "2026-09-12"
+    res_sat = solve_schedule(members, tasks, calendar, sat_start)
+    assert res_sat["status"] == "OPTIMAL"
+    assert res_sat["project_start_date"] == "2026-09-12"
+
+    # 先頭タスクの開始日は土日をスキップした最初の実稼働日（2026-09-14 月曜日）であること
+    first_task = res_sat["tasks"]["task-api"]
+    assert first_task["start_date"] == "2026-09-14"
+
+    # 2. 祝日（2026-09-15 火曜日）を開始日に指定した場合
+    holiday_start = "2026-09-15"
+    res_hol = solve_schedule(members, tasks, calendar, holiday_start)
+    assert res_hol["status"] == "OPTIMAL"
+    assert res_hol["project_start_date"] == "2026-09-15"
+
+    # 先頭タスクの開始日は祝日をスキップした最初の実稼働日（2026-09-16 水曜日）であること
+    first_task_hol = res_hol["tasks"]["task-api"]
+    assert first_task_hol["start_date"] == "2026-09-16"
+
+    # 3. deadline に datetime.date オブジェクト（非クォート YAML 想定）が渡された場合
+    custom_tasks_date_obj = [
+        {
+            "id": "task-date-deadline",
+            "title": "date型納期タスク",
+            "estimate_hours": 8.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": datetime.date(2026, 9, 30),
+        }
+    ]
+    res_deadline = solve_schedule(members, custom_tasks_date_obj, calendar, "2026-09-01")
+    assert res_deadline["status"] == "OPTIMAL"
+    t_deadline = res_deadline["tasks"]["task-date-deadline"]
+    assert isinstance(t_deadline["deadline"], str)
+    assert t_deadline["deadline"] == "2026-09-30"
+    assert isinstance(t_deadline["start_date"], str)
+    assert isinstance(t_deadline["end_date"], str)
+
+

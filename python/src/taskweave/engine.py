@@ -24,6 +24,13 @@ WEEKDAY_MAP = {
 }
 
 
+def to_date(val: str | datetime.date) -> datetime.date:
+    """文字列または datetime.date を datetime.date オブジェクトに統一する."""
+    if isinstance(val, datetime.date):
+        return val
+    return datetime.date.fromisoformat(val)
+
+
 def load_yaml(path: str | Path) -> Any:
     """指定されたパスの YAML ファイルを読み込む."""
     p = Path(path)
@@ -49,13 +56,17 @@ def build_workdays(
     start_date: datetime.date,
     num_days: int,
     workdays_config: list[str],
-    holidays_config: list[dict[str, str]],
+    holidays_config: list[dict[str, Any]],
 ) -> list[datetime.date]:
     """指定開始日から、稼働日のみを抽出した日付リストを生成する."""
-    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_config if w in WEEKDAY_MAP}
+    allowed_weekdays = {
+        WEEKDAY_MAP[w.lower()]
+        for w in workdays_config
+        if isinstance(w, str) and w.lower() in WEEKDAY_MAP
+    }
     if not allowed_weekdays:
         raise ValueError("calendar.workdays に有効な稼働曜日が指定されていません。")
-    holiday_dates = {datetime.date.fromisoformat(h["date"]) for h in holidays_config}
+    holiday_dates = {to_date(h["date"]) for h in holidays_config if "date" in h}
 
     valid_days: list[datetime.date] = []
     current = start_date
@@ -70,13 +81,17 @@ def count_workdays_between(
     start: datetime.date,
     end: datetime.date,
     workdays_config: list[str],
-    holidays_config: list[dict[str, str]],
+    holidays_config: list[dict[str, Any]],
 ) -> int:
     """2つの日付間の稼働日数をカウントする (start <= date < end)."""
-    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_config if w in WEEKDAY_MAP}
+    allowed_weekdays = {
+        WEEKDAY_MAP[w.lower()]
+        for w in workdays_config
+        if isinstance(w, str) and w.lower() in WEEKDAY_MAP
+    }
     if not allowed_weekdays:
         raise ValueError("calendar.workdays に有効な稼働曜日が指定されていません。")
-    holiday_dates = {datetime.date.fromisoformat(h["date"]) for h in holidays_config}
+    holiday_dates = {to_date(h["date"]) for h in holidays_config if "date" in h}
 
     count = 0
     curr = start
@@ -108,10 +123,7 @@ def solve_schedule(
     Returns:
         計算結果辞書 (status, project_start_date, makespan_workdays, tasks, member_daily_work, diagnostics)
     """
-    if isinstance(project_start_date, str):
-        start_date = datetime.date.fromisoformat(project_start_date)
-    else:
-        start_date = project_start_date
+    start_date = to_date(project_start_date)
 
     # スケール係数: 0.1h = 1 単位 (8h * 1.0 = 80, 8h * 0.8 = 64)
     scale = 10
@@ -245,15 +257,19 @@ def solve_schedule(
     # 納期制約と遅延ペナルティ (FR-8)
     delay: dict[str, cp_model.IntVar] = {}
     first_workday = workdays[0]
-    allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_cfg if w in WEEKDAY_MAP}
-    holiday_dates = {datetime.date.fromisoformat(h["date"]) for h in holidays_cfg}
+    allowed_weekdays = {
+        WEEKDAY_MAP[w.lower()]
+        for w in workdays_cfg
+        if isinstance(w, str) and w.lower() in WEEKDAY_MAP
+    }
+    holiday_dates = {to_date(h["date"]) for h in holidays_cfg if "date" in h}
 
     for t_id, task in tasks.items():
-        deadline_str = task.get("deadline")
+        deadline_raw = task.get("deadline")
         if force_infeasible_deadline:
             target_deadline_day = 1
-        elif deadline_str:
-            d_date = datetime.date.fromisoformat(deadline_str)
+        elif deadline_raw:
+            d_date = to_date(deadline_raw)
             if d_date >= first_workday:
                 matching = [idx for idx, d in enumerate(workdays) if d <= d_date]
                 target_deadline_day = max(matching) if matching else 0
@@ -322,6 +338,8 @@ def solve_schedule(
 
             t_est = round(tasks[t_id]["estimate_hours"] * scale)
             normalized_estimate = round(t_est / scale, 1)
+            raw_deadline = tasks[t_id].get("deadline")
+            normalized_deadline = to_date(raw_deadline).isoformat() if raw_deadline else None
 
             result["tasks"][t_id] = {
                 "assigned_to": assigned_m,
@@ -331,7 +349,7 @@ def solve_schedule(
                 "actual_active_days": len(active_days),
                 "estimate_hours": normalized_estimate,
                 "daily_hours": daily_breakdown,
-                "deadline": tasks[t_id].get("deadline"),
+                "deadline": normalized_deadline,
                 "delay_days": d_val,
             }
             if d_val > 0:
@@ -340,9 +358,9 @@ def solve_schedule(
                     {
                         "task_id": t_id,
                         "delay_workdays": d_val,
-                        "deadline": tasks[t_id].get("deadline"),
+                        "deadline": normalized_deadline,
                         "projected_end_date": workdays[e_idx].isoformat(),
-                        "reason": f"制約充足により納期 ({tasks[t_id].get('deadline')}) を {d_val} 稼働日超過",
+                        "reason": f"制約充足により納期 ({normalized_deadline}) を {d_val} 稼働日超過",
                     }
                 )
 
