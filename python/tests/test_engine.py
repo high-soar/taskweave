@@ -513,3 +513,153 @@ def test_missing_holiday_date_raises_error(basic_data):
     }
     with pytest.raises(ValueError, match="calendar.holidays の各項目には 'date' フィールドが必須です"):
         solve_schedule(members, tasks, invalid_cal, start_date)
+
+
+# ==============================================================================
+# Issue #14: タスクの必須スキルを持つメンバのみにタスクを自動割り当てできる
+# ==============================================================================
+
+
+def test_scenario_issue14_ac1_single_and_multiple_required_skills(basic_data):
+    """AC-1: required_skills が指定されたタスクは、該当スキルを保有するメンバにのみ割り当てられること (単一・複数スキル)."""
+    members, _, calendar = basic_data
+    # Alice: [frontend, backend], Bob: [backend, devops]
+    start_date = datetime.date(2026, 9, 1)
+
+    custom_tasks = [
+        {
+            "id": "task-single-skill",
+            "title": "フロントエンド単一スキルタスク",
+            "estimate_hours": 8.0,
+            "required_skills": ["frontend"],
+            "depends_on": [],
+        },
+        {
+            "id": "task-multi-skills",
+            "title": "バックエンド＋インフラ複数スキルタスク",
+            "estimate_hours": 8.0,
+            "required_skills": ["backend", "devops"],
+            "depends_on": [],
+        },
+    ]
+
+    res = solve_schedule(members, custom_tasks, calendar, start_date)
+    assert res["status"] == "OPTIMAL"
+
+    # task-single-skill は frontend を持つ Alice にのみ割り当て可能
+    assert res["tasks"]["task-single-skill"]["assigned_to"] == "alice"
+
+    # task-multi-skills は backend と devops の双方を持つ Bob にのみ割り当て可能 (Alice は devops を持たない)
+    assert res["tasks"]["task-multi-skills"]["assigned_to"] == "bob"
+
+
+def test_scenario_issue14_ac2_multi_candidate_workload_distribution(basic_data):
+    """AC-2: 該当スキルを持つメンバが複数存在する場合、稼働上限や工期最適化を考慮して並行配分されること."""
+    members, _, calendar = basic_data
+    # Alice (8h/日) と Bob (6.4h/日) の双方が backend スキルを保有
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    custom_tasks = [
+        {
+            "id": "task-backend-1",
+            "title": "バックエンドタスク1",
+            "estimate_hours": 8.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+        },
+        {
+            "id": "task-backend-2",
+            "title": "バックエンドタスク2",
+            "estimate_hours": 6.4,
+            "required_skills": ["backend"],
+            "depends_on": [],
+        },
+    ]
+
+    res = solve_schedule(members, custom_tasks, calendar, start_date)
+    assert res["status"] == "OPTIMAL"
+
+    assigned_1 = res["tasks"]["task-backend-1"]["assigned_to"]
+    assigned_2 = res["tasks"]["task-backend-2"]["assigned_to"]
+
+    # 1人に集中させず、2人に分散して並行実行されていること
+    assert {assigned_1, assigned_2} == {"alice", "bob"}
+
+    # 並行実行されるため総工期 (Makespan) は 1 稼働日となること
+    assert res["makespan_workdays"] == 1
+    assert res["tasks"]["task-backend-1"]["start_date"] == "2026-09-01"
+    assert res["tasks"]["task-backend-2"]["start_date"] == "2026-09-01"
+
+
+def test_scenario_issue14_ac3_empty_or_omitted_required_skills(basic_data):
+    """AC-3: required_skills が空、未指定、または null のタスクは全メンバが担当候補となること."""
+    members, _, calendar = basic_data
+    start_date = datetime.date(2026, 9, 1)
+
+    custom_tasks = [
+        {
+            "id": "task-empty-skills",
+            "title": "空スキルタスク",
+            "estimate_hours": 8.0,
+            "required_skills": [],
+            "depends_on": [],
+        },
+        {
+            "id": "task-omitted-skills",
+            "title": "未指定スキルタスク",
+            "estimate_hours": 6.4,
+            "depends_on": [],
+        },
+        {
+            "id": "task-none-skills",
+            "title": "nullスキルタスク",
+            "estimate_hours": 8.0,
+            "required_skills": None,
+            "depends_on": [],
+        },
+    ]
+
+    res = solve_schedule(members, custom_tasks, calendar, start_date)
+    assert res["status"] == "OPTIMAL"
+
+    valid_member_ids = {m["id"] for m in members}
+    for t_id in ["task-empty-skills", "task-omitted-skills", "task-none-skills"]:
+        assigned = res["tasks"][t_id]["assigned_to"]
+        assert assigned in valid_member_ids
+        total_hours = sum(res["tasks"][t_id]["daily_hours"].values())
+        assert pytest.approx(total_hours, 0.01) == res["tasks"][t_id]["estimate_hours"]
+
+
+def test_scenario_issue14_ac4_unfulfillable_skills_raises_error(basic_data):
+    """AC-4: 必須スキルを充足するメンバがチーム内に不在の場合、ValueError を送出すること."""
+    members, _, calendar = basic_data
+    # Alice: [frontend, backend], Bob: [backend, devops]
+    start_date = datetime.date(2026, 9, 1)
+
+    # 1. チーム内の誰も持っていない未知のスキル
+    task_unknown_skill = [
+        {
+            "id": "task-unknown",
+            "title": "未知スキルタスク",
+            "estimate_hours": 8.0,
+            "required_skills": ["machine-learning"],
+            "depends_on": [],
+        }
+    ]
+    with pytest.raises(ValueError, match="必須スキル.*保有するメンバが.*存在しません"):
+        solve_schedule(members, task_unknown_skill, calendar, start_date)
+
+    # 2. 個別スキルはチーム内に存在するが、単一メンバで全スキルを兼任できない組み合わせ
+    # Alice lacks devops, Bob lacks frontend -> No member has both
+    task_impossible_combo = [
+        {
+            "id": "task-impossible-combo",
+            "title": "兼任不能スキルタスク",
+            "estimate_hours": 8.0,
+            "required_skills": ["frontend", "devops"],
+            "depends_on": [],
+        }
+    ]
+    with pytest.raises(ValueError, match="必須スキル.*保有するメンバが.*存在しません"):
+        solve_schedule(members, task_impossible_combo, calendar, start_date)
+

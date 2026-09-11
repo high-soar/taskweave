@@ -5,7 +5,7 @@ description: Python / OR-Tools CP-SAT を用いたスケジューリング計算
 tags: [scheduling, engine, or-tools, milestone-2]
 status: accepted
 issues: [12, 13, 14, 15, 16]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-11T13:48:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-11T14:21:00Z }
 verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
 ---
 
@@ -34,7 +34,9 @@ verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
 - **FR-3 (タスク先行依存関係制約)**:
   - タスクの `depends_on` に指定された先行タスクがすべて完了した翌稼働日以降に、後続タスクの作業を開始すること。
 - **FR-4 (スキル制約)**:
-  - タスクの `required_skills` に指定されたすべてのスキルを保有するメンバにのみ、そのタスクを割り当てること。スキル指定が空の場合は全メンバを担当候補とすること。
+  - タスクの `required_skills` に指定されたすべてのスキルを保有するメンバにのみ、そのタスクを割り当てること（単一スキルおよび複数スキルの AND 条件）。
+  - スキル指定が空配列または未指定（`null` を含む）の場合は、全メンバを担当候補とすること。
+  - タスクの `required_skills` をすべて満たすメンバがチーム内に1人も存在しない場合、暗黙に解なし（`INFEASIBLE`）とせず、明示的な入力エラー（`ValueError`）として計算を拒否すること（`001-yaml-schema` の FR-7 と整合）。
 - **FR-5 (1タスク1担当者制約 - YAGNI)**:
   - 1つのタスクは同時に1人のメンバのみが担当すること（複数メンバでの同時分担は初期 MVP では行わない）。
 - **FR-6 (カレンダー・非稼働日考慮)**:
@@ -302,13 +304,41 @@ $$\min \left( 10000 \times \sum_{t \in T} \text{delay}_t + 100 \times \text{make
 
 ### シナリオ 3: 必須スキルに基づく割当制約 (#14)
 
-- **前提 (Given)**:
-  - Alice はスキル `[frontend, backend]`、Bob は `[backend, devops]` を保有。
-  - タスク X は `required_skills: [frontend]`、タスク Y は `required_skills: [devops]`。
-- **操作 (When)**:
-  - スケジュールを計算する。
-- **期待結果 (Then)**:
-  - タスク X の担当者が Alice に、タスク Y の担当者が Bob に自動的に割り当てられること。
+- **受入基準 1 (AC-1: 必須スキル指定タスクの保有メンバ限定割当)**:
+  - **前提 (Given)**:
+    - Alice はスキル `[frontend, backend]`、Bob は `[backend, devops]` を保有。
+    - タスク A は `required_skills: [frontend]`（単一スキル）。
+    - タスク B は `required_skills: [backend, devops]`（複数スキル）。
+  - **操作 (When)**:
+    - スケジュールを計算する。
+  - **期待結果 (Then)**:
+    - タスク A の担当者が Alice に、タスク B の担当者が Bob に割り当てられること（Bob は frontend を持たないためタスク A を担当できず、Alice は devops を持たないためタスク B を担当できない）。
+
+- **受入基準 2 (AC-2: 複数候補メンバ存在時の負荷・稼働上限・工期最適化による自動配分)**:
+  - **前提 (Given)**:
+    - Alice (8h/日) と Bob (6.4h/日) の双方がスキル `[backend]` を保有。
+    - 相互に依存しないタスク C (8h, `required_skills: [backend]`) とタスク D (8h, `required_skills: [backend]`) が存在。
+  - **操作 (When)**:
+    - スケジュールを計算する。
+  - **期待結果 (Then)**:
+    - 1 人にタスクが集中して順次実行されるのではなく、Makespan（総所要工期）および稼働上限を最適化するように Alice と Bob の双方に自動配分され、並行して着手されること。
+
+- **受入基準 3 (AC-3: 必須スキル空・未指定タスクの全メンバ割当候補化)**:
+  - **前提 (Given)**:
+    - Alice と Bob が存在。
+    - タスク E は `required_skills: []`、タスク F は `required_skills` が未指定（または `null`）。
+  - **操作 (When)**:
+    - スケジュールを計算する。
+  - **期待結果 (Then)**:
+    - エラーとならず、全メンバが担当候補として評価され、最適なスケジュールが算出されること。
+
+- **受入基準 4 (AC-4: 必須スキル充足メンバ不在時の入力検証エラー)**:
+  - **前提 (Given)**:
+    - チーム内のどのメンバも保有していないスキル（例: `ml`）を指定したタスク、または個別スキルはチーム内に存在するが単一メンバで全スキルを兼任できない組み合わせ（例: `[frontend, devops]`）を要求するタスクが存在。
+  - **操作 (When)**:
+    - スケジュールを計算する。
+  - **期待結果 (Then)**:
+    - ソルバーの解なし（`INFEASIBLE`）に倒れず、明示的な `ValueError`（必須スキルを満たすメンバ不在エラー）を送出して計算を中断すること。
 
 ### シナリオ 4: 納期超過時の検知とボトルネック診断 (#15)
 
