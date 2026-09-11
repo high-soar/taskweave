@@ -128,15 +128,15 @@ def test_scenario_4_output_schema(basic_data):
 
 
 def test_rounding_preserves_hours(basic_data):
-    """0.1h 単位への丸め処理で round() を使用し、工数を失わないこと."""
+    """0.1h 刻みの工数で入力工数・出力工数・日別合計が完全に一致すること."""
     members, _, calendar = basic_data
     start_date = datetime.date(2026, 9, 1)
 
     custom_tasks = [
         {
             "id": "task-rounding",
-            "title": "丸めテストタスク",
-            "estimate_hours": 2.69,
+            "title": "0.1h刻みテストタスク",
+            "estimate_hours": 2.7,
             "required_skills": ["backend"],
             "depends_on": [],
         }
@@ -147,7 +147,7 @@ def test_rounding_preserves_hours(basic_data):
     t_info = result["tasks"]["task-rounding"]
     total_hours = sum(t_info["daily_hours"].values())
     assert pytest.approx(total_hours, 0.01) == 2.7
-    # 出力の estimate_hours が正規化され、日別合計と完全に一致すること (R1)
+    # 入力工数と出力工数・日別合計が完全一致すること (R1)
     assert t_info["estimate_hours"] == 2.7
     assert pytest.approx(total_hours, 0.01) == t_info["estimate_hours"]
 
@@ -175,22 +175,22 @@ def test_rounding_preserves_hours(basic_data):
     assert result2["tasks"]["task-fit"]["daily_hours"]["2026-09-01"] == 2.7
 
 
-def test_sub_point_one_hours_raises_error(basic_data):
-    """0.1時間未満の工数 (0.04h, 0.05h) が指定された場合、ValueError を送出すること (R1)."""
+def test_invalid_step_or_sub_point_one_hours_raises_error(basic_data):
+    """0.1時間未満 (0.04h, 0.05h) および 0.1h 刻みでない工数 (0.14h, 0.06h, 2.69h) で ValueError を送出すること (R1)."""
     members, _, calendar = basic_data
     start_date = datetime.date(2026, 9, 1)
 
-    for small_hour in [0.04, 0.05]:
+    for invalid_hour in [0.04, 0.05, 0.06, 0.14, 2.69]:
         tasks = [
             {
-                "id": "task-tiny",
-                "title": f"微小タスク {small_hour}h",
-                "estimate_hours": small_hour,
+                "id": "task-invalid-step",
+                "title": f"不正工数タスク {invalid_hour}h",
+                "estimate_hours": invalid_hour,
                 "required_skills": ["backend"],
                 "depends_on": [],
             }
         ]
-        with pytest.raises(ValueError, match="最小単位 \\(0.1h\\) 以上である必要があります"):
+        with pytest.raises(ValueError, match="0.1h 以上の 0.1h 刻み"):
             solve_schedule(members, tasks, calendar, start_date)
 
 

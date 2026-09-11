@@ -129,12 +129,13 @@ def solve_schedule(
     tasks = {t["id"]: t for t in tasks_data}
     task_ids = list(tasks.keys())
 
-    # タスク工数の最小単位検証および未定義依存タスクの検証 (FR-10)
+    # タスク工数の最小単位・0.1h刻み検証および未定義依存タスクの検証 (FR-10)
     for t_id, task in tasks.items():
-        t_est = round(task.get("estimate_hours", 0) * scale)
-        if t_est < 1:
+        est = task.get("estimate_hours", 0)
+        t_est = round(est * scale)
+        if t_est < 1 or abs(est - t_est / scale) > 1e-6:
             raise ValueError(
-                f"タスク '{t_id}' の見積工数 ({task.get('estimate_hours')}h) は最小単位 (0.1h) 以上である必要があります。"
+                f"タスク '{t_id}' の見積工数 ({est}h) は 0.1h 以上の 0.1h 刻み（小数点第1位まで）である必要があります。"
             )
         for dep_id in task.get("depends_on", []):
             if dep_id not in tasks:

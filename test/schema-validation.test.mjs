@@ -130,7 +130,7 @@ members:
       assert.equal(validateMembers(yamlZero).valid, false);
     });
 
-    it("タスクの estimate_hours が 0 以下の数値または文字列の場合にエラーを検知すること", () => {
+    it("タスクの estimate_hours が 0.1 未満、0.1 刻みでない数値、または文字列の場合にエラーを検知すること", () => {
       const yamlZero = `
 tasks:
   - id: "t1"
@@ -167,6 +167,17 @@ tasks:
       const resultSub2 = validateTasks(yamlPointZeroFive);
       assert.equal(resultSub2.valid, false);
       assert.ok(resultSub2.errors.some((e) => e.includes("0.1 以上")));
+
+      // 0.1時間刻みでない数値 (0.14) の工数拒否 (R1 回帰テスト)
+      const yamlNotStep = `
+tasks:
+  - id: "t5"
+    title: "Non step hours 0.14"
+    estimate_hours: 0.14
+`;
+      const resultNotStep = validateTasks(yamlNotStep);
+      assert.equal(resultNotStep.valid, false);
+      assert.ok(resultNotStep.errors.some((e) => e.includes("0.1 時間刻み")));
     });
 
     it("タスクの deadline が不正な日付形式の場合にエラーを検知すること", () => {

@@ -84,8 +84,9 @@ CP-SAT は整数変数のみを扱うため、実数である工数・稼働上�
   - 例: `max_capacity: 1.0` $\rightarrow 80$ (8.0h)
   - 例: `max_capacity: 0.8` $\rightarrow 64$ (6.4h)
 - **タスク見積工数 ($E_t$)**: $\text{round}(\text{estimate\_hours}_t \times 10)$
+  - 制約: $\text{estimate\_hours} \ge 0.1$ かつ 0.1h 刻み（入力仕様 001-yaml-schema と完全一致。違反時は `ValueError` を送出して工数の暗黙改変を防止）。
   - 例: `estimate_hours: 16` $\rightarrow 160$ (16.0h)
-  - 例: `estimate_hours: 24` $\rightarrow 240$ (24.0h)
+  - 例: `estimate_hours: 2.7` $\rightarrow 27$ (2.7h)
 
 ### 3.2 計画地平とカレンダーマッピング (Planning Horizon & Calendar)
 

@@ -150,13 +150,16 @@ export function validateTasks(yamlString) {
       errors.push(`${prefix}.title: 必須の文字列です`);
     }
 
-    if (
-      typeof t.estimate_hours !== "number" ||
-      !Number.isFinite(t.estimate_hours) ||
-      t.estimate_hours < 0.1
-    ) {
+    const isStep01 =
+      typeof t.estimate_hours === "number" &&
+      Number.isFinite(t.estimate_hours) &&
+      t.estimate_hours >= 0.1 &&
+      Math.abs(t.estimate_hours - Math.round(t.estimate_hours * 10) / 10) <
+        1e-6;
+
+    if (!isStep01) {
       errors.push(
-        `${prefix}.estimate_hours: 0.1 以上の有限な正の数値である必要があります`,
+        `${prefix}.estimate_hours: 0.1 以上の 0.1 時間刻み（小数点以下1桁まで）の正の数値である必要があります`,
       );
     }
 
