@@ -123,15 +123,18 @@ CP-SAT は整数変数のみを扱うため、実数である工数・稼働上�
    タスク $t$ の要求スキル $\text{required\_skills}_t$ をすべて満たさないメンバ $m$ に対して:
    $$\text{assigned}_{t, m} = 0$$
 3. **担当メンバ限定の作業割当**:
-   $$\text{work}_{t, m, d} \le E_t \times \text{assigned}_{t, m} \quad (\forall t, m, d)$$
+   タスク $t$ の担当外メンバ ($assigned_{t,m} = 0$) に作業が割り当てられないよう、タスク・メンバ単位で期間全体の作業工数を集約制約化します（$work \ge 0$ のため各日も 0 に強制され、線形制約数を数万から数百へ大幅削減）:
+   $$\sum_{d=0}^{H-1} \text{work}_{t, m, d} \le E_t \times \text{assigned}_{t, m} \quad (\forall t \in T, \forall m \in M)$$
 4. **タスク総工数の充足**:
    $$\sum_{m \in M} \sum_{d=0}^{H-1} \text{work}_{t, m, d} = E_t \quad (\forall t \in T)$$
 5. **メンバ日別稼働上限**:
    $$\sum_{t \in T} \text{work}_{t, m, d} \le C_m \quad (\forall m \in M, \forall d \in [0, H-1])$$
 6. **作業期間のバインド (開始日・終了日)**:
-   日 $d$ にタスク $t$ の作業が存在する場合（$\sum_m \text{work}_{t, m, d} > 0$）:
-   $$\text{start\_day}_t \le d \quad \text{かつ} \quad \text{end\_day}_t \ge d$$
-   また、期間外の作業は禁止（$d < \text{start\_day}_t \lor d > \text{end\_day}_t \implies \text{work} = 0$）。
+   日 $d$ にタスク $t$ の作業が存在することを示す指示変数 $\text{act}_{t, d} \in \{0, 1\}$ を用い:
+   $$\sum_{m \in M} \text{work}_{t, m, d} > 0 \iff \text{act}_{t, d} = 1$$
+   $$\text{act}_{t, d} = 1 \implies \text{start\_day}_t \le d \quad \text{かつ} \quad \text{end\_day}_t \ge d$$
+   $$\text{act}_{t, d} = 0 \implies \sum_{m \in M} \text{work}_{t, m, d} = 0$$
+   これにより、期間外（$d < \text{start\_day}_t$ または $d > \text{end\_day}_t$）では $\text{act}_{t, d} = 1$ が成立不能となり、$\text{act}_{t, d} = 0$ から自動的に作業工数が 0 に強制されます。
 7. **タスク先行依存関係 (depends_on)**:
    タスク $t_{\text{prev}} \in \text{depends\_on}(t)$ に対し:
    $$\text{start\_day}_t > \text{end\_day}_{t_{\text{prev}}}$$
@@ -450,3 +453,8 @@ YAGNI 原則（不要な複雑性の排除）に基づき、以下の項目は�
 - **探索ワーカー数設定 (`num_search_workers = 1`) による決定論的再現性**:
   - **採択**: 単一ワーカー探索と固定シード (`random_seed = 42`) の組み合わせ。
   - **理由**: マルチワーカー探索では並行スレッドの競合順序により、同一シード・同一入力であっても `FEASIBLE` 解などの探索経路・出力スケジュールが実行ごとに変動する問題を防ぎ、NFR-2（決定論的再現性）を完全に満たすため。
+- **制約集約化と決定論的 Warm-start ヒントによる大規模問題のスケーラビリティ両立 (NFR-1 / NFR-2)**:
+  - **採択**:
+    1. 非担当メンバの作業 0 制約をタスク・メンバ単位で全期間集約（$\sum_d work \le E_t \times assigned$）し、Presolve / Probing の線形制約数を数万から数百へ削減。
+    2. 依存グラフの決定論的トポロジカルソートと貪欲法により、事前ヒント（`model.AddHint`）を O(NM) で生成して供給。
+  - **理由**: 単一ワーカー設定下では、通常規模（数十タスク・80日地平）において探索開始時の初期解発見に時間を要し、10秒制限で `UNKNOWN`（タスク数 0）となる性能課題が生じるため。数学的に等価な制約スリム化で Presolve をミリ秒級に短縮し、確実な Warm-start ヒントを与えることで、単一ワーカーの完全な決定論的再現性を維持したまま、10秒以内に確実に高品質な実行可能解（`FEASIBLE`）を出力できるため。

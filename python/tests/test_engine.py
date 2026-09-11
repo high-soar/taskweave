@@ -1044,4 +1044,50 @@ def test_deterministic_reproducibility_multiple_runs(basic_data):
             assert t_curr["daily_hours"] == t_base["daily_hours"]
 
 
+def test_large_scale_60_tasks_feasible_and_deterministic():
+    """[R3テスト]: 8メンバ・60タスク・horizon 80 の通常規模入力において、単一ワーカー設定 (num_search_workers=1) でも 10秒以内に FEASIBLE/OPTIMAL 解を出力し、かつ決定論的再現性を維持すること (NFR-1, NFR-2)."""
+    members = [
+        {"id": f"m{i}", "name": f"Member {i}", "max_capacity": 1.0, "skills": ["frontend" if i % 2 == 0 else "backend"]}
+        for i in range(8)
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    start_date = datetime.date(2026, 9, 1)
+
+    tasks = []
+    for i in range(60):
+        tasks.append(
+            {
+                "id": f"task-{i}",
+                "title": f"Task {i}",
+                "estimate_hours": 8.0,
+                "required_skills": ["frontend" if i % 2 == 0 else "backend"],
+                "depends_on": [f"task-{i-2}"] if i >= 2 and i % 5 != 0 else [],
+                "deadline": "2026-09-30" if i % 10 == 0 else None,
+            }
+        )
+
+    # 1回目の実行
+    res1 = solve_schedule(members, tasks, calendar, start_date, horizon_days=80)
+    assert res1["status"] in ("OPTIMAL", "FEASIBLE")
+    assert len(res1["tasks"]) == 60
+    assert res1["makespan_workdays"] > 0
+    assert "delayed_tasks" in res1["diagnostics"]
+
+    # 2回目の実行 (決定論的一致の検証)
+    res2 = solve_schedule(members, tasks, calendar, start_date, horizon_days=80)
+    assert res2["status"] == res1["status"]
+    assert res2["makespan_workdays"] == res1["makespan_workdays"]
+    assert res2["diagnostics"]["is_deadline_violated"] == res1["diagnostics"]["is_deadline_violated"]
+    assert res2["diagnostics"]["total_delay_workdays"] == res1["diagnostics"]["total_delay_workdays"]
+
+    for t_id in [f"task-{j}" for j in range(60)]:
+        t1 = res1["tasks"][t_id]
+        t2 = res2["tasks"][t_id]
+        assert t1["assigned_to"] == t2["assigned_to"]
+        assert t1["start_date"] == t2["start_date"]
+        assert t1["end_date"] == t2["end_date"]
+        assert t1["delay_days"] == t2["delay_days"]
+        assert t1["daily_hours"] == t2["daily_hours"]
+
+
 
