@@ -25,14 +25,28 @@ generated: { by: copilot/chat, at: 2026-09-10T11:11:30Z }
 # Test document
 `;
 
+const CLEAN_GIT_ENV = { ...process.env };
+delete CLEAN_GIT_ENV.GIT_DIR;
+delete CLEAN_GIT_ENV.GIT_WORK_TREE;
+delete CLEAN_GIT_ENV.GIT_INDEX_FILE;
+delete CLEAN_GIT_ENV.GIT_OBJECT_DIRECTORY;
+delete CLEAN_GIT_ENV.GIT_COMMON_DIR;
+delete CLEAN_GIT_ENV.GIT_PREFIX;
+
 async function createGitRepository() {
   const directory = await mkdtemp(join(tmpdir(), "taskweave-okf-"));
-  await execFileAsync("git", ["init", "--quiet"], { cwd: directory });
+  await execFileAsync("git", ["init", "--quiet"], {
+    cwd: directory,
+    env: CLEAN_GIT_ENV,
+  });
   return directory;
 }
 
 async function trackFiles(directory, files) {
-  await execFileAsync("git", ["add", ...files], { cwd: directory });
+  await execFileAsync("git", ["add", ...files], {
+    cwd: directory,
+    env: CLEAN_GIT_ENV,
+  });
 }
 
 async function writeRepositoryFixture(directory) {

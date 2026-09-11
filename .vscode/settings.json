@@ -2,6 +2,9 @@
   "files.watcherExclude": {
     "**/.git/objects/**": true,
     "**/.git/subtree-cache/**": true,
-    "**/.git": true
-  }
+    "**/.git/**": true,
+    "**/.worktrees/**": true
+  },
+  "git.repositoryScanIgnoredFolders": ["node_modules", ".worktrees"],
+  "git.detectWorktrees": true
 }

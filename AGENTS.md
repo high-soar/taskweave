@@ -11,7 +11,7 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-10T14:55:00Z }
 
 Taskweave is a schedule-planning tool for coding agents. It is intended to manage members, tasks, estimates, constraints, and actual work as text-based source files so that an agent can help propose and revise a team schedule.
 
-The repository is currently in the requirements and tool-selection phase. The scheduling model, source-file schema, and application commands are not finalized yet.
+The repository has finalized its source-file schema (Milestone 1) and implemented the basic scheduling engine MVP in Python / OR-Tools (Milestone 2, Issue #12). Actuals tracking, replanning workflows, and full agent CLI commands are planned for subsequent milestones and not finalized yet.
 
 ## 1. Environment & Architecture
 
@@ -19,7 +19,7 @@ The repository is currently in the requirements and tool-selection phase. The sc
 - **Runtimes**: Node.js 24, npm, `uv`
 - **CLI Tools**: GitHub CLI (`gh`), GitHub Copilot CLI (`@github/copilot`), ripgrep (`rg`)
 - **AI Tooling**: Google Antigravity extension, GitHub Copilot Chat
-- **Application status**: The Python scheduling engine and its dependencies have not been added yet.
+- **Application status**: The Python scheduling engine MVP is implemented in `python/` using OR-Tools CP-SAT and managed via `uv`. Source YAML schema validation is implemented in Node.js.
 
 When implementation starts, keep source data separate from generated schedules. Preserve the distinction between estimates, planned work, and actual work so that replanning from a chosen point in time remains possible.
 

@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "test": "node --test && npm run test:python",
     "test:node": "node --test",
-    "test:python": "uv run --python 3.13 --with ortools --with pyyaml --with pytest pytest tests/",
+    "test:python": "uv run --project python pytest python/tests",
     "typecheck": "node scripts/typecheck.mjs",
     "validate": "node scripts/validate.mjs"
   },

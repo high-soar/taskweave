@@ -3,9 +3,10 @@ type: spec
 title: 計算エンジンの入出力および制約モデル仕様
 description: Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
 tags: [scheduling, engine, or-tools, milestone-2]
-status: draft
+status: accepted
 issues: [12, 13, 14, 15, 16]
 generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-10T15:15:00Z }
+verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
 ---
 
 # 計算エンジンの入出力および制約モデル仕様 (003-scheduling-engine)
@@ -60,6 +61,15 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-10T15:15:00Z }
 - **NFR-3 (クリーンな依存分離)**:
   - 計算エンジン本体は CLI やフロントエンドに依存せず、純粋な Python ライブラリ / モジュールとしてインポート・単体テスト可能であること。
 
+### 2.3 ディレクトリ構成およびパッケージ境界 (Node.js / Python 共存方針)
+
+- **Python 実装配置**: Python 本体実装は `python/src/taskweave/` に配置し、`scripts/spikes/` のスパイクコードから本体コードを直接参照しない。
+- **依存管理**: `python/pyproject.toml` および `python/uv.lock` で依存関係を管理する。
+- **テスト配置**: Python のテストコードは `python/tests/` に配置し、`pytest` で実行する。
+- **データと仕様の共有**: `examples/` の YAML 原本および `specs/` の仕様書は Node.js / Python 間で共通利用し、重複を持たない。
+- **YAGNI 原則の遵守**: `models/`, `loader/`, `scheduler/` などの過剰なサブディレクトリ分割は行わず、フラットで簡潔なモジュール構成を維持する。
+- **CI / 品質ゲート連携**: ルートの `npm test` から `uv run --project python pytest python/tests` を実行し、リポジトリ全体の一貫した検証入口を保つ。
+
 ---
 
 ## 3. 数理モデル定義 (OR-Tools CP-SAT)
@@ -74,8 +84,9 @@ CP-SAT は整数変数のみを扱うため、実数である工数・稼働上�
   - 例: `max_capacity: 1.0` $\rightarrow 80$ (8.0h)
   - 例: `max_capacity: 0.8` $\rightarrow 64$ (6.4h)
 - **タスク見積工数 ($E_t$)**: $\text{round}(\text{estimate\_hours}_t \times 10)$
+  - 制約: $\text{estimate\_hours} \ge 0.1$ かつ 0.1h 刻み（入力仕様 001-yaml-schema と完全一致。違反時は `ValueError` を送出して工数の暗黙改変を防止）。
   - 例: `estimate_hours: 16` $\rightarrow 160$ (16.0h)
-  - 例: `estimate_hours: 24` $\rightarrow 240$ (24.0h)
+  - 例: `estimate_hours: 2.7` $\rightarrow 27$ (2.7h)
 
 ### 3.2 計画地平とカレンダーマッピング (Planning Horizon & Calendar)
 
