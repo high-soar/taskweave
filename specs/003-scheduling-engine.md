@@ -214,7 +214,9 @@ $$\min \left( 10000 \times \sum_{t \in T} \text{delay}_t + 100 \times \text{make
   },
   "diagnostics": {
     "is_deadline_violated": false,
-    "delayed_tasks": []
+    "total_delay_workdays": 0,
+    "delayed_tasks": [],
+    "recommendations": []
   }
 }
 ```
@@ -225,6 +227,7 @@ $$\min \left( 10000 \times \sum_{t \in T} \text{delay}_t + 100 \times \text{make
 {
   "diagnostics": {
     "is_deadline_violated": true,
+    "total_delay_workdays": 3,
     "delayed_tasks": [
       {
         "task_id": "task-ui",
@@ -232,6 +235,14 @@ $$\min \left( 10000 \times \sum_{t \in T} \text{delay}_t + 100 \times \text{make
         "deadline": "2026-09-02",
         "projected_end_date": "2026-09-07",
         "reason": "先行タスク task-api の完了待ちおよび日別稼働上限により納期に未達"
+      }
+    ],
+    "recommendations": [
+      {
+        "task_id": "task-ui",
+        "action": "extend_deadline",
+        "recommended_deadline": "2026-09-07",
+        "additional_workdays_needed": 3
       }
     ]
   }
@@ -340,15 +351,46 @@ $$\min \left( 10000 \times \sum_{t \in T} \text{delay}_t + 100 \times \text{make
   - **期待結果 (Then)**:
     - ソルバーの解なし（`INFEASIBLE`）に倒れず、明示的な `ValueError`（必須スキルを満たすメンバ不在エラー、または型不正エラー）を送出して計算を中断すること。
 
-### シナリオ 4: 納期超過時の検知とボトルネック診断 (#15)
+### シナリオ 4: 納期制約の充足判定と制約充足不能（Infeasible）時のボトルネック診断 (#15)
 
-- **前提 (Given)**:
-  - 開始後 2 稼働日で完了不可能な工数（合計 40h）のタスク群に対して、`deadline` が開始後 2 日目、あるいは開始日より前の日付に指定されている。
-- **操作 (When)**:
-  - スケジュールを計算する。
-- **期待結果 (Then)**:
-  - 計算エンジンが異常終了せず結果を返すこと。
-  - `diagnostics.is_deadline_violated` が `true` となり、遅延タスク ID と超過日数が報告されること。
+- **受入基準 1 (AC-1: 納期制約を満たすスケジュールの計算)**:
+  - **前提 (Given)**:
+    - メンバ Alice (8h/日) が存在。
+    - タスク A (16h = 2稼働日) に `deadline: "2026-09-03"` が指定されている（十分な余裕あり）。
+  - **操作 (When)**:
+    - 2026-09-01 (火) を開始日としてスケジュールを解く。
+  - **期待結果 (Then)**:
+    - タスク A の終了日は 2026-09-02 となり、deadline 以前に完了すること。
+    - `delay_days` は 0、`diagnostics.is_deadline_violated` は `false`、`diagnostics.total_delay_workdays` は 0 となること。
+
+- **受入基準 2 (AC-2: 充足不能時の例外回避と結果ステータス返却)**:
+  - **前提 (Given)**:
+    - メンバ Alice (8h/日) が存在。
+    - 合計 40h（5稼働日分）のタスク群に対し、`deadline` が開始後 2 稼働日目（2026-09-02）、あるいはプロジェクト開始前日付に指定されている（工期的に充足不能）。
+  - **操作 (When)**:
+    - スケジュールを計算する。
+  - **期待結果 (Then)**:
+    - ソルバーが例外でクラッシュ（異常終了）せず、正常に結果オブジェクトを返却すること。
+    - `diagnostics.is_deadline_violated` が `true` となり、納期超過タスクの情報が取得できること。
+
+- **受入基準 3 (AC-3: ボトルネック原因の診断レポート出力)**:
+  - **前提 (Given)**:
+    - 先行タスク task-api (16h = 2稼働日) と後続タスク task-ui (24h = 3稼働日、task-api に依存) が存在。
+    - 後続タスク task-ui の `deadline` が開始後 2 稼働日目（先行タスク完了前）に設定されている。
+  - **操作 (When)**:
+    - スケジュールを計算する。
+  - **期待結果 (Then)**:
+    - `diagnostics.delayed_tasks` に task-ui が含まれること。
+    - `reason` に先行タスク（task-api）の完了待ちや日別稼働上限などのボトルネック要因が診断テキストとして出力されること。
+
+- **受入基準 4 (AC-4: 超過日数サマリーと推奨緩和情報の提示)**:
+  - **前提 (Given)**:
+    - 納期超過が発生しているタスクが存在。
+  - **操作 (When)**:
+    - スケジュールを計算する。
+  - **期待結果 (Then)**:
+    - `diagnostics.total_delay_workdays` に全遅延タスクの遅延稼働日数合計が正しく集計されること。
+    - `diagnostics.recommendations` に各遅延タスクの推奨緩和情報（`action: "extend_deadline"`、`recommended_deadline`、`additional_workdays_needed`）が出力されること。
 
 ### シナリオ 5: 未定義依存関係の検証エラー
 

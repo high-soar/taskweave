@@ -284,6 +284,7 @@ def solve_schedule(
 
     # 納期制約と遅延ペナルティ (FR-8)
     delay: dict[str, cp_model.IntVar] = {}
+    task_deadline_days: dict[str, int] = {}
     first_workday = workdays[0]
     allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_cfg if w in WEEKDAY_MAP}
     holiday_dates = parse_holiday_dates(holidays_cfg)
@@ -308,6 +309,7 @@ def solve_schedule(
         else:
             target_deadline_day = horizon_days - 1
 
+        task_deadline_days[t_id] = target_deadline_day
         task_max_delay = max(horizon_days, (horizon_days - 1) - target_deadline_day)
         delay[t_id] = model.NewIntVar(0, task_max_delay, f"delay_{t_id}")
         model.Add(delay[t_id] >= end_day[t_id] - target_deadline_day)
@@ -338,7 +340,9 @@ def solve_schedule(
         "member_daily_work": {},
         "diagnostics": {
             "is_deadline_violated": False,
+            "total_delay_workdays": 0,
             "delayed_tasks": [],
+            "recommendations": [],
         },
     }
 
@@ -378,15 +382,58 @@ def solve_schedule(
             }
             if d_val > 0:
                 result["diagnostics"]["is_deadline_violated"] = True
+
+                # 遅延原因（ボトルネック）の診断 (FR-8, Issue #15)
+                deadline_day_val = task_deadline_days.get(t_id, horizon_days - 1)
+
+                reasons: list[str] = []
+                if deadline_day_val < 0:
+                    reasons.append(f"納期 ({normalized_deadline}) がプロジェクト開始日以前に設定されている")
+                else:
+                    blocking_deps: list[str] = []
+                    for dep_id in tasks[t_id].get("depends_on", []):
+                        dep_e_idx = solver.Value(end_day[dep_id])
+                        cap_hours = member_capacities[assigned_m] / scale
+                        min_workdays_needed = math.ceil(tasks[t_id]["estimate_hours"] / cap_hours)
+                        if dep_e_idx >= deadline_day_val or dep_e_idx + min_workdays_needed > deadline_day_val:
+                            blocking_deps.append(dep_id)
+                    if blocking_deps:
+                        reasons.append(f"先行タスク {', '.join(blocking_deps)} の完了待ち")
+
+                    cap_hours = member_capacities[assigned_m] / scale
+                    min_workdays_needed = math.ceil(tasks[t_id]["estimate_hours"] / cap_hours)
+                    if min_workdays_needed > (deadline_day_val + 1):
+                        reasons.append(f"日別稼働上限 ({cap_hours}h/日) に対する工数不足")
+                    elif not blocking_deps:
+                        reasons.append("担当メンバのリソース競合または日別稼働上限")
+
+                reason_text = (
+                    "および".join(reasons) + f"により納期 ({normalized_deadline}) を {d_val} 稼働日超過"
+                    if reasons
+                    else f"制約充足により納期 ({normalized_deadline}) を {d_val} 稼働日超過"
+                )
+
                 result["diagnostics"]["delayed_tasks"].append(
                     {
                         "task_id": t_id,
                         "delay_workdays": d_val,
                         "deadline": normalized_deadline,
                         "projected_end_date": workdays[e_idx].isoformat(),
-                        "reason": f"制約充足により納期 ({normalized_deadline}) を {d_val} 稼働日超過",
+                        "reason": reason_text,
                     }
                 )
+                result["diagnostics"]["recommendations"].append(
+                    {
+                        "task_id": t_id,
+                        "action": "extend_deadline",
+                        "recommended_deadline": workdays[e_idx].isoformat(),
+                        "additional_workdays_needed": d_val,
+                    }
+                )
+
+        result["diagnostics"]["total_delay_workdays"] = sum(
+            d["delay_workdays"] for d in result["diagnostics"]["delayed_tasks"]
+        )
 
         # メンバ日別集計
         for m_id in member_ids:

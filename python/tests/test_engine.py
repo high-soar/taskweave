@@ -731,3 +731,217 @@ def test_scenario_issue14_ac4_unfulfillable_skills_raises_error(basic_data):
     with pytest.raises(ValueError, match="required_skills は文字列のリストである必要があります"):
         solve_schedule(members, task_invalid_type_skills, calendar, start_date)
 
+
+# ==============================================================================
+# Issue #15: 納期制約の充足判定と制約充足不能（Infeasible）時のボトルネック診断
+# ==============================================================================
+
+
+def test_scenario_issue15_ac1_deadline_met_no_delay(basic_data):
+    """AC-1: deadline が指定され、期限内完了可能な場合に delay_days: 0 で計画されること."""
+    members, _, calendar = basic_data
+    # Alice (8h/日) のみを使用
+    alice_only = [m for m in members if m["id"] == "alice"]
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    tasks = [
+        {
+            "id": "task-api",
+            "title": "API実装",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2026-09-02",  # 2稼働日目の終了時 (9/1, 9/2 で完了可能)
+        },
+        {
+            "id": "task-ui",
+            "title": "UI実装",
+            "estimate_hours": 24.0,
+            "required_skills": ["frontend"],
+            "depends_on": ["task-api"],
+            "deadline": "2026-09-10",  # 9/7完了予定なので余裕あり
+        },
+    ]
+
+    res = solve_schedule(alice_only, tasks, calendar, start_date)
+    assert res["status"] == "OPTIMAL"
+
+    # task-api は 2026-09-02 に完了し遅延なし
+    assert res["tasks"]["task-api"]["end_date"] == "2026-09-02"
+    assert res["tasks"]["task-api"]["delay_days"] == 0
+
+    # task-ui は 2026-09-07 に完了し遅延なし
+    assert res["tasks"]["task-ui"]["end_date"] == "2026-09-07"
+    assert res["tasks"]["task-ui"]["delay_days"] == 0
+
+    # 診断結果に遅延フラグが false で集計が 0 であること
+    assert res["diagnostics"]["is_deadline_violated"] is False
+    assert res["diagnostics"]["total_delay_workdays"] == 0
+    assert res["diagnostics"]["delayed_tasks"] == []
+    assert res["diagnostics"]["recommendations"] == []
+
+
+def test_scenario_issue15_ac2_infeasible_detected_without_crash(basic_data):
+    """AC-2: 期限内完了が不可能な場合（制約充足不能）、例外でクラッシュせず結果ステータスと遅延情報を返すこと."""
+    members, _, calendar = basic_data
+    alice_only = [m for m in members if m["id"] == "alice"]
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    # 合計 40h (5稼働日分) のタスクに対して、後続の deadline が 2稼働日目 (2026-09-02) に設定
+    tasks = [
+        {
+            "id": "task-api",
+            "title": "API実装",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2026-09-02",
+        },
+        {
+            "id": "task-ui",
+            "title": "UI実装",
+            "estimate_hours": 24.0,
+            "required_skills": ["frontend"],
+            "depends_on": ["task-api"],
+            "deadline": "2026-09-02",  # 先行タスク完了日と同じ日に設定（先行タスクがあるため達成不可能）
+        },
+    ]
+
+    # 例外でクラッシュせずに正常終了すること
+    res = solve_schedule(alice_only, tasks, calendar, start_date)
+    assert res["status"] in ("OPTIMAL", "FEASIBLE")
+
+    # 診断情報で納期違反が検知されていること
+    assert res["diagnostics"]["is_deadline_violated"] is True
+    assert len(res["diagnostics"]["delayed_tasks"]) >= 1
+    delayed_ids = [d["task_id"] for d in res["diagnostics"]["delayed_tasks"]]
+    assert "task-ui" in delayed_ids
+
+
+def test_scenario_issue15_ac3_bottleneck_diagnosis_report(basic_data):
+    """AC-3: 充足不能となった原因（先行タスク待ち、日別稼働上限など）のボトルネック診断レポートが出力されること."""
+    members, _, calendar = basic_data
+    alice_only = [m for m in members if m["id"] == "alice"]
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    # 先行タスク task-api (16h = 2日) -> 後続タスク task-ui (24h = 3日)
+    # task-ui の deadline を 2026-09-02 に設定
+    # 理由: 先行タスク task-api の完了 (2026-09-02) 待ちにより、後続タスクは最短でも 2026-09-03 着手となり納期に間に合わない
+    tasks = [
+        {
+            "id": "task-api",
+            "title": "API実装",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2026-09-02",
+        },
+        {
+            "id": "task-ui",
+            "title": "UI実装",
+            "estimate_hours": 24.0,
+            "required_skills": ["frontend"],
+            "depends_on": ["task-api"],
+            "deadline": "2026-09-02",
+        },
+    ]
+
+    res = solve_schedule(alice_only, tasks, calendar, start_date)
+    assert res["status"] in ("OPTIMAL", "FEASIBLE")
+
+    diag_tasks = {d["task_id"]: d for d in res["diagnostics"]["delayed_tasks"]}
+    assert "task-ui" in diag_tasks
+    ui_diag = diag_tasks["task-ui"]
+
+    assert ui_diag["delay_workdays"] == 3
+    assert ui_diag["deadline"] == "2026-09-02"
+    assert ui_diag["projected_end_date"] == "2026-09-07"
+    # reason に先行タスク task-api の待ちまたは稼働上限への言及が含まれること
+    assert "task-api" in ui_diag["reason"] or "先行タスク" in ui_diag["reason"]
+
+
+def test_scenario_issue15_ac4_summary_and_recommendations(basic_data):
+    """AC-4: 超過日数サマリー (total_delay_workdays) と推奨緩和情報 (recommendations) が提示されること."""
+    members, _, calendar = basic_data
+    alice_only = [m for m in members if m["id"] == "alice"]
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    tasks = [
+        {
+            "id": "task-api",
+            "title": "API実装",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2026-09-02",
+        },
+        {
+            "id": "task-ui",
+            "title": "UI実装",
+            "estimate_hours": 24.0,
+            "required_skills": ["frontend"],
+            "depends_on": ["task-api"],
+            "deadline": "2026-09-02",
+        },
+    ]
+
+    res = solve_schedule(alice_only, tasks, calendar, start_date)
+    assert res["status"] in ("OPTIMAL", "FEASIBLE")
+
+    diagnostics = res["diagnostics"]
+    assert diagnostics["is_deadline_violated"] is True
+    assert diagnostics["total_delay_workdays"] == 3
+
+    recs = diagnostics["recommendations"]
+    assert len(recs) == 1
+    rec = recs[0]
+    assert rec["task_id"] == "task-ui"
+    assert rec["action"] == "extend_deadline"
+    assert rec["recommended_deadline"] == "2026-09-07"
+    assert rec["additional_workdays_needed"] == 3
+
+
+def test_scenario_issue15_multiple_delayed_tasks(basic_data):
+    """複数タスクが同時に納期遅延する場合、全タスクの超過日数と緩和推奨が正確に出力されること."""
+    members, _, calendar = basic_data
+    alice_only = [m for m in members if m["id"] == "alice"]
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    # 独立した2つの16hタスク（Alice 1人なので sequential に 2日 + 2日 = 4稼働日必要）
+    # どちらも deadline: 2026-09-01 (1稼働日目)
+    tasks = [
+        {
+            "id": "task-1",
+            "title": "タスク1",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2026-09-01",
+        },
+        {
+            "id": "task-2",
+            "title": "タスク2",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "depends_on": [],
+            "deadline": "2026-09-01",
+        },
+    ]
+
+    res = solve_schedule(alice_only, tasks, calendar, start_date)
+    assert res["status"] in ("OPTIMAL", "FEASIBLE")
+
+    diagnostics = res["diagnostics"]
+    assert diagnostics["is_deadline_violated"] is True
+    delayed_ids = {d["task_id"] for d in diagnostics["delayed_tasks"]}
+    assert delayed_ids == {"task-1", "task-2"}
+
+    # 1つは2日目 (9/2) に完了 -> 1日遅延
+    # もう1つは4日目 (9/4) に完了 -> 3日遅延
+    # 合計遅延日数 = 1 + 3 = 4稼働日
+    assert diagnostics["total_delay_workdays"] == 4
+
+    rec_ids = {r["task_id"] for r in diagnostics["recommendations"]}
+    assert rec_ids == {"task-1", "task-2"}
+
+
