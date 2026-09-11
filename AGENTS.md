@@ -19,7 +19,7 @@ The repository is currently in the requirements and tool-selection phase. The sc
 - **Runtimes**: Node.js 24, npm, `uv`
 - **CLI Tools**: GitHub CLI (`gh`), GitHub Copilot CLI (`@github/copilot`), ripgrep (`rg`)
 - **AI Tooling**: Google Antigravity extension, GitHub Copilot Chat
-- **Application status**: The Python scheduling engine and its dependencies have not been added yet.
+- **Application status**: The Python scheduling engine MVP is implemented in `python/` using OR-Tools CP-SAT and managed via `uv`.
 
 When implementation starts, keep source data separate from generated schedules. Preserve the distinction between estimates, planned work, and actual work so that replanning from a chosen point in time remains possible.
 
