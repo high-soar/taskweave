@@ -268,10 +268,18 @@ export function validateOkfDocument(filePath, source) {
 }
 
 async function getTrackedMarkdown(rootDir) {
+  const cleanEnv = { ...process.env };
+  delete cleanEnv.GIT_DIR;
+  delete cleanEnv.GIT_WORK_TREE;
+  delete cleanEnv.GIT_INDEX_FILE;
+  delete cleanEnv.GIT_OBJECT_DIRECTORY;
+  delete cleanEnv.GIT_COMMON_DIR;
+  delete cleanEnv.GIT_PREFIX;
+
   const { stdout } = await execFileAsync(
     "git",
     ["ls-files", "-z", "--", "*.md"],
-    { cwd: rootDir, encoding: "utf8" },
+    { cwd: rootDir, encoding: "utf8", env: cleanEnv },
   );
   return stdout.split("\0").filter(Boolean);
 }
