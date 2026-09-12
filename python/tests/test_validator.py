@@ -6,6 +6,7 @@
 from pathlib import Path
 import pytest
 from taskweave.validator import (
+    resolve_task_progress,
     validate_actuals,
     validate_calendar,
     validate_logical_integrity,
@@ -737,7 +738,7 @@ class TestActualsLogicalIntegrity:
         }
         res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
         assert res.valid is False
-        assert any("24" in e and "超" in e for e in res.errors)
+        assert any("actuals.work_logs[1]:" in e and "24" in e for e in res.errors)
 
     def test_absence_conflict_with_work_logs(self, valid_env):
         members, tasks, calendar = valid_env
@@ -763,7 +764,7 @@ class TestActualsLogicalIntegrity:
         }
         res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
         assert res.valid is False
-        assert any("1タスク1担当者" in e or "複数の担当メンバ" in e for e in res.errors)
+        assert any("actuals.work_logs[1]:" in e and ("1タスク1担当者" in e or "複数の担当メンバ" in e) for e in res.errors)
 
 
 class TestProjectDataWithActuals:
@@ -807,6 +808,103 @@ task_progress:
         res = validate_project_data(tmp_path)
         assert res.valid is False
         assert len(res.errors) > 0
+
+
+class TestResolveTaskProgress:
+    """Milestone 3 Issue #25 [R4]: FR-8 残工数デフォルト解決ロジックのテスト."""
+
+    def test_resolve_all_omitted(self):
+        tasks = [
+            {"id": "task-api", "title": "API", "estimate_hours": 16.0},
+            {"id": "task-ui", "title": "UI", "estimate_hours": 24.0},
+        ]
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-api", "hours": 4.0},
+                {"date": "2026-09-11", "member_id": "alice", "task_id": "task-api", "hours": 2.0},
+            ],
+            "task_progress": [],
+        }
+        resolved = resolve_task_progress(tasks, actuals)
+        assert len(resolved) == 2
+        api = next(r for r in resolved if r["task_id"] == "task-api")
+        assert api["remaining_hours"] == 10.0
+        assert api["status"] == "in_progress"
+        assert api["total_logged_hours"] == 6.0
+
+        ui = next(r for r in resolved if r["task_id"] == "task-ui")
+        assert ui["remaining_hours"] == 24.0
+        assert ui["status"] == "not_started"
+        assert ui["total_logged_hours"] == 0.0
+
+    def test_resolve_partially_specified(self):
+        tasks = [
+            {"id": "task-api", "title": "API", "estimate_hours": 16.0},
+            {"id": "task-ui", "title": "UI", "estimate_hours": 24.0},
+        ]
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-api", "hours": 4.0},
+            ],
+            "task_progress": [
+                {"task_id": "task-api", "remaining_hours": 8.0, "status": "in_progress"},
+            ],
+        }
+        resolved = resolve_task_progress(tasks, actuals)
+        api = next(r for r in resolved if r["task_id"] == "task-api")
+        assert api["remaining_hours"] == 8.0  # 明示的残工数が優先
+        assert api["status"] == "in_progress"
+
+        ui = next(r for r in resolved if r["task_id"] == "task-ui")
+        assert ui["remaining_hours"] == 24.0  # 未指定タスクは初期見積
+        assert ui["status"] == "not_started"
+
+    def test_resolve_logged_exceeds_estimate(self):
+        tasks = [
+            {"id": "task-api", "title": "API", "estimate_hours": 10.0},
+        ]
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-api", "hours": 12.0},
+            ],
+            "task_progress": [],
+        }
+        resolved = resolve_task_progress(tasks, actuals)
+        api = resolved[0]
+        assert api["remaining_hours"] == 0.0
+        assert api["status"] == "completed"
+        assert api["total_logged_hours"] == 12.0
+
+    def test_resolve_no_actuals(self):
+        tasks = [
+            {"id": "task-api", "title": "API", "estimate_hours": 16.0},
+        ]
+        resolved = resolve_task_progress(tasks, None)
+        api = resolved[0]
+        assert api["remaining_hours"] == 16.0
+        assert api["status"] == "not_started"
+        assert api["total_logged_hours"] == 0.0
+
+    def test_project_data_includes_resolved_progress(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text(
+            """work_logs:
+  - date: "2026-09-10"
+    member_id: "alice"
+    task_id: "task-api"
+    hours: 6.0
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is True
+        assert res.resolved_progress is not None
+        api = next(r for r in res.resolved_progress if r["task_id"] == "task-api")
+        assert api["remaining_hours"] == 10.0  # 16.0 - 6.0
+        assert api["status"] == "in_progress"
+
 
 
 

@@ -42,6 +42,8 @@ def _get_error_path(error_msg: str) -> list[str | int]:
             result.append(int(p))
         else:
             result.append(p)
+    if result and result[0] == "actuals":
+        result = result[1:]
     return result
 
 

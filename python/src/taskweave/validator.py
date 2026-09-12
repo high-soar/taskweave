@@ -36,6 +36,7 @@ class ProjectValidationResult:
     tasks: list[dict[str, Any]] | None = None
     calendar: dict[str, Any] | None = None
     actuals: dict[str, Any] | None = None
+    resolved_progress: list[dict[str, Any]] | None = None
 
 
 def is_valid_date(val: Any) -> bool:
@@ -589,7 +590,9 @@ def validate_logical_integrity(
         task_progress = actuals.get("task_progress", [])
 
         daily_hours: dict[tuple[str, str], float] = {}
+        daily_hours_entries: dict[tuple[str, str], list[int]] = {}
         task_members: dict[str, set[str]] = {}
+        task_member_entries: dict[str, list[tuple[str, int]]] = {}
 
         if isinstance(work_logs, list):
             for i, wl in enumerate(work_logs):
@@ -614,9 +617,11 @@ def validate_logical_integrity(
 
                 if m_id and t_id:
                     task_members.setdefault(t_id, set()).add(m_id)
+                    task_member_entries.setdefault(t_id, []).append((m_id, i))
 
                 if m_id and d and isinstance(h, (int, float)) and not isinstance(h, bool):
                     daily_hours[(m_id, d)] = round(daily_hours.get((m_id, d), 0.0) + float(h), 6)
+                    daily_hours_entries.setdefault((m_id, d), []).append(i)
 
                 # 不在日との矛盾チェック
                 if m_id and d and (m_id, d) in absent_member_dates:
@@ -628,8 +633,9 @@ def validate_logical_integrity(
         # 24h 超過チェック
         for (m_id, d), total_h in sorted(daily_hours.items()):
             if total_h > 24.0:
+                last_i = daily_hours_entries[(m_id, d)][-1]
                 errors.append(
-                    f'actuals.work_logs: メンバ "{m_id}" の日付 "{d}" の実績工数合計 ({round(total_h, 1)}h) が 24h を超えています。'
+                    f'actuals.work_logs[{last_i}]: メンバ "{m_id}" の日付 "{d}" の実績工数合計 ({round(total_h, 1)}h) が 24h を超えています。'
                     f"解決のヒント: 実績工数の入力値を確認してください"
                 )
 
@@ -637,8 +643,10 @@ def validate_logical_integrity(
         for t_id, m_set in sorted(task_members.items()):
             if len(m_set) > 1:
                 m_list = ", ".join(sorted(m_set))
+                first_member = task_member_entries[t_id][0][0]
+                conflict_i = next(idx for mem, idx in task_member_entries[t_id] if mem != first_member)
                 errors.append(
-                    f'actuals.work_logs: タスク "{t_id}" に複数の担当メンバ ({m_list}) の実績が記録されています。'
+                    f'actuals.work_logs[{conflict_i}]: タスク "{t_id}" に複数の担当メンバ ({m_list}) の実績が記録されています。'
                     f"Taskweave では1タスク1担当者原則に基づき、同一タスクへの複数メンバの実績記録は許可されません"
                 )
 
@@ -657,6 +665,82 @@ def validate_logical_integrity(
     return ValidationResult(valid=len(errors) == 0, errors=errors)
 
 
+def resolve_task_progress(
+    tasks: list[dict[str, Any]],
+    actuals: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """タスク一覧と実績データから各タスクの残工数および進捗ステータスを解決する (FR-8).
+
+    - task_progress に明示指定されているタスク:
+        指定された remaining_hours, status をそのまま採用する.
+    - task_progress に未指定のタスク:
+        - total_logged_hours: 当該タスクの work_logs の hours 合計
+        - remaining_hours: max(0.0, round(estimate_hours - total_logged_hours, 1))
+        - status:
+            - remaining_hours == 0.0 の場合: "completed"
+            - total_logged_hours > 0 の場合: "in_progress"
+            - それ以外 (実績なし): "not_started"
+
+    Returns:
+        list[dict[str, Any]]: 各タスクの解決済み進捗情報リスト
+    """
+    work_logs = (actuals.get("work_logs") or []) if isinstance(actuals, dict) else []
+    task_progress = (actuals.get("task_progress") or []) if isinstance(actuals, dict) else []
+
+    logged_hours_by_task: dict[str, float] = {}
+    if isinstance(work_logs, list):
+        for wl in work_logs:
+            if isinstance(wl, dict):
+                t_id = wl.get("task_id")
+                h = wl.get("hours")
+                if isinstance(t_id, str) and isinstance(h, (int, float)) and not isinstance(h, bool):
+                    logged_hours_by_task[t_id] = round(logged_hours_by_task.get(t_id, 0.0) + float(h), 6)
+
+    explicit_progress: dict[str, dict[str, Any]] = {}
+    if isinstance(task_progress, list):
+        for tp in task_progress:
+            if isinstance(tp, dict):
+                t_id = tp.get("task_id")
+                if isinstance(t_id, str):
+                    explicit_progress[t_id] = tp
+
+    resolved: list[dict[str, Any]] = []
+    for task in tasks:
+        if not isinstance(task, dict) or not isinstance(task.get("id"), str):
+            continue
+        t_id = task["id"]
+        est = float(task.get("estimate_hours", 0.0))
+        total_logged = round(logged_hours_by_task.get(t_id, 0.0), 1)
+
+        if t_id in explicit_progress:
+            tp = explicit_progress[t_id]
+            resolved.append({
+                "task_id": t_id,
+                "estimate_hours": est,
+                "total_logged_hours": total_logged,
+                "remaining_hours": float(tp.get("remaining_hours", 0.0)),
+                "status": tp.get("status", "not_started"),
+            })
+        else:
+            rem = round(max(0.0, est - total_logged), 1)
+            if rem == 0.0:
+                status = "completed"
+            elif total_logged > 0:
+                status = "in_progress"
+            else:
+                status = "not_started"
+
+            resolved.append({
+                "task_id": t_id,
+                "estimate_hours": est,
+                "total_logged_hours": total_logged,
+                "remaining_hours": rem,
+                "status": status,
+            })
+
+    return resolved
+
+
 def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
     """プロジェクト原本 YAML ディレクトリから members, tasks, calendar, actuals を読み込んで一括検証する."""
     p = Path(dir_path)
@@ -667,6 +751,7 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
     tasks_data = None
     calendar_data = None
     actuals_data = None
+    resolved_progress = None
 
     # members.yaml
     members_path = p / "members.yaml"
@@ -728,6 +813,8 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
         if not logical_res.valid:
             all_valid = False
             errors.extend(logical_res.errors)
+        else:
+            resolved_progress = resolve_task_progress(tasks_data, actuals=actuals_data)
 
     return ProjectValidationResult(
         valid=all_valid and len(errors) == 0,
@@ -736,6 +823,7 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
         tasks=tasks_data,
         calendar=calendar_data,
         actuals=actuals_data,
+        resolved_progress=resolved_progress,
     )
 
 

@@ -166,7 +166,7 @@ task_progress:
         )
         result = run_cli("validate", str(basic_project_files))
         assert result.returncode == 1
-        assert "actuals.yaml:" in result.stderr
+        assert "actuals.yaml:5:" in result.stderr
         assert "0.1 時間刻み" in result.stderr
 
     def test_absence_conflict_cli_reports_file_line(self, basic_project_files):
@@ -192,7 +192,7 @@ task_progress:
         )
         result = run_cli("validate", str(basic_project_files))
         assert result.returncode == 1
-        assert "actuals.yaml:" in result.stderr or "calendar.yaml:" in result.stderr
+        assert "actuals.yaml:2:" in result.stderr
         assert "不在" in result.stderr
 
     def test_one_task_multiple_members_reports_file_line(self, basic_project_files):
@@ -212,7 +212,7 @@ task_progress:
         )
         result = run_cli("validate", str(basic_project_files))
         assert result.returncode == 1
-        assert "actuals.yaml:" in result.stderr
+        assert "actuals.yaml:6:" in result.stderr
         assert "1タスク1担当者" in result.stderr or "複数の担当メンバ" in result.stderr
 
 
