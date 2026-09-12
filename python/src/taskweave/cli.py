@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 from taskweave.validator import (
+    validate_actuals,
     validate_calendar,
     validate_logical_integrity,
     validate_members,
@@ -29,7 +30,7 @@ FILES = [
 
 def _get_error_path(error_msg: str) -> list[str | int]:
     match = re.match(
-        r"^((?:members|tasks|calendar)(?:\[\d+\])?(?:\.[\w-]+(?:\[\d+\])?)*)\s*:",
+        r"^((?:members|tasks|calendar|actuals)(?:\[\d+\])?(?:\.[\w-]+(?:\[\d+\])?)*)\s*:",
         error_msg,
     )
     if not match:
@@ -130,6 +131,34 @@ def validate_directory(dir_path: str | Path) -> bool:
         else:
             parsed_data[file_name] = res.data
 
+    # actuals.yaml (オプショナル原本)
+    actuals_file = "actuals.yaml"
+    actuals_path = directory / actuals_file
+    if actuals_path.exists():
+        try:
+            source = actuals_path.read_text(encoding="utf-8")
+        except Exception as err:
+            has_errors = True
+            sys.stderr.write(f"{actuals_file}:1: 読み込み失敗: {err}\n")
+        else:
+            parse_err = None
+            doc_node = None
+            try:
+                doc_node = yaml.compose(source)
+            except yaml.YAMLError as y_err:
+                parse_err = y_err
+
+            doc_nodes[actuals_file] = doc_node
+            res = validate_actuals(source)
+
+            if not res.valid:
+                has_errors = True
+                for err in res.errors:
+                    line = _get_error_line(doc_node, err, parse_err)
+                    sys.stderr.write(f"{actuals_file}:{line}: {err}\n")
+            else:
+                parsed_data[actuals_file] = res.data
+
     if (
         not has_errors
         and "members.yaml" in parsed_data
@@ -140,6 +169,7 @@ def validate_directory(dir_path: str | Path) -> bool:
             parsed_data["members.yaml"],
             parsed_data["tasks.yaml"],
             parsed_data["calendar.yaml"],
+            actuals=parsed_data.get("actuals.yaml"),
         )
         if not logical_res.valid:
             has_errors = True
@@ -149,6 +179,8 @@ def validate_directory(dir_path: str | Path) -> bool:
                     target_file = "members.yaml"
                 elif err.startswith("calendar"):
                     target_file = "calendar.yaml"
+                elif err.startswith("actuals"):
+                    target_file = "actuals.yaml"
 
                 line = _get_error_line(doc_nodes.get(target_file), err)
                 sys.stderr.write(f"{target_file}:{line}: {err}\n")

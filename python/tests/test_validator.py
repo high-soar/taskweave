@@ -6,6 +6,7 @@
 from pathlib import Path
 import pytest
 from taskweave.validator import (
+    validate_actuals,
     validate_calendar,
     validate_logical_integrity,
     validate_members,
@@ -407,5 +408,405 @@ class TestLogicalIntegrity:
         result = validate_logical_integrity(valid_members, tasks)
         assert result.valid is False
         assert any("必須スキル" in e and "frontend, devops" in e for e in result.errors)
+
+
+class TestActualsSchemaValidation:
+    """Milestone 3 Issue #25: actuals.yaml スキーマ・型検証."""
+
+    def test_actuals_yaml_valid_full(self):
+        yaml_content = """
+work_logs:
+  - date: "2026-09-10"
+    member_id: "alice"
+    task_id: "task-api"
+    hours: 6.0
+  - date: "2026-09-11"
+    member_id: "alice"
+    task_id: "task-api"
+    hours: 4.5
+task_progress:
+  - task_id: "task-api"
+    remaining_hours: 5.5
+    status: "in_progress"
+  - task_id: "task-setup"
+    remaining_hours: 0.0
+    status: "completed"
+"""
+        result = validate_actuals(yaml_content)
+        assert result.valid is True
+        assert len(result.errors) == 0
+        assert len(result.data["work_logs"]) == 2
+        assert len(result.data["task_progress"]) == 2
+        assert result.data["work_logs"][0]["hours"] == 6.0
+        assert result.data["task_progress"][0]["status"] == "in_progress"
+
+    def test_actuals_yaml_only_work_logs(self):
+        yaml_content = """
+work_logs:
+  - date: "2026-09-10"
+    member_id: "alice"
+    task_id: "task-api"
+    hours: 8.0
+"""
+        result = validate_actuals(yaml_content)
+        assert result.valid is True
+        assert len(result.data["work_logs"]) == 1
+        assert result.data["task_progress"] == []
+
+    def test_actuals_yaml_only_task_progress(self):
+        yaml_content = """
+task_progress:
+  - task_id: "task-api"
+    remaining_hours: 4.0
+    status: "in_progress"
+"""
+        result = validate_actuals(yaml_content)
+        assert result.valid is True
+        assert result.data["work_logs"] == []
+        assert len(result.data["task_progress"]) == 1
+
+    def test_actuals_yaml_empty_dict(self):
+        result = validate_actuals("{}")
+        assert result.valid is True
+        assert result.data["work_logs"] == []
+        assert result.data["task_progress"] == []
+
+    def test_actuals_work_logs_missing_fields(self):
+        yaml_missing = """
+work_logs:
+  - member_id: "alice"
+    task_id: "task-api"
+  - date: "2026-09-10"
+    hours: 4.0
+"""
+        result = validate_actuals(yaml_missing)
+        assert result.valid is False
+        assert any("work_logs[0].date" in e for e in result.errors)
+        assert any("work_logs[0].hours" in e for e in result.errors)
+        assert any("work_logs[1].member_id" in e for e in result.errors)
+        assert any("work_logs[1].task_id" in e for e in result.errors)
+
+    def test_actuals_work_logs_invalid_hours(self):
+        # 0, negative, string, bool, non-0.1-step
+        yaml_zero = "work_logs:\n  - date: '2026-09-10'\n    member_id: alice\n    task_id: t1\n    hours: 0\n"
+        assert validate_actuals(yaml_zero).valid is False
+
+        yaml_neg = "work_logs:\n  - date: '2026-09-10'\n    member_id: alice\n    task_id: t1\n    hours: -1.0\n"
+        assert validate_actuals(yaml_neg).valid is False
+
+        yaml_str = "work_logs:\n  - date: '2026-09-10'\n    member_id: alice\n    task_id: t1\n    hours: 'four'\n"
+        assert validate_actuals(yaml_str).valid is False
+
+        yaml_bool = "work_logs:\n  - date: '2026-09-10'\n    member_id: alice\n    task_id: t1\n    hours: true\n"
+        assert validate_actuals(yaml_bool).valid is False
+
+        yaml_step = "work_logs:\n  - date: '2026-09-10'\n    member_id: alice\n    task_id: t1\n    hours: 1.25\n"
+        res_step = validate_actuals(yaml_step)
+        assert res_step.valid is False
+        assert any("0.1 時間刻み" in e for e in res_step.errors)
+
+    def test_actuals_work_logs_invalid_date(self):
+        yaml_date = "work_logs:\n  - date: '2026-02-30'\n    member_id: alice\n    task_id: t1\n    hours: 2.0\n"
+        res = validate_actuals(yaml_date)
+        assert res.valid is False
+        assert any("date" in e for e in res.errors)
+
+    def test_actuals_task_progress_missing_fields(self):
+        yaml_missing = """
+task_progress:
+  - task_id: "t1"
+"""
+        result = validate_actuals(yaml_missing)
+        assert result.valid is False
+        assert any("remaining_hours" in e for e in result.errors)
+        assert any("status" in e for e in result.errors)
+
+    def test_actuals_task_progress_invalid_remaining_hours(self):
+        yaml_neg = "task_progress:\n  - task_id: t1\n    remaining_hours: -0.5\n    status: in_progress\n"
+        assert validate_actuals(yaml_neg).valid is False
+
+        yaml_step = "task_progress:\n  - task_id: t1\n    remaining_hours: 1.25\n    status: in_progress\n"
+        assert validate_actuals(yaml_step).valid is False
+
+    def test_actuals_task_progress_invalid_status(self):
+        yaml_status = "task_progress:\n  - task_id: t1\n    remaining_hours: 1.0\n    status: invalid_status\n"
+        res = validate_actuals(yaml_status)
+        assert res.valid is False
+        assert any("status" in e for e in res.errors)
+
+    def test_actuals_task_progress_completed_with_remaining_hours(self):
+        yaml_completed = "task_progress:\n  - task_id: t1\n    remaining_hours: 2.0\n    status: completed\n"
+        res = validate_actuals(yaml_completed)
+        assert res.valid is False
+        assert any("0.0" in e and "completed" in e for e in res.errors)
+
+    def test_actuals_task_progress_duplicate_task_id(self):
+        yaml_dup = """
+task_progress:
+  - task_id: t1
+    remaining_hours: 2.0
+    status: in_progress
+  - task_id: t1
+    remaining_hours: 0.0
+    status: completed
+"""
+        res = validate_actuals(yaml_dup)
+        assert res.valid is False
+        assert any("重複" in e for e in res.errors)
+
+    def test_actuals_non_dict_rejected(self):
+        assert validate_actuals("[]").valid is False
+        assert validate_actuals("work_logs: 'invalid'").valid is False
+        assert validate_actuals("task_progress: 'invalid'").valid is False
+
+
+class TestCalendarAbsencesValidation:
+    """Milestone 3 Issue #25: calendar.yaml absences スキーマ・型検証."""
+
+    def test_calendar_with_valid_absences(self):
+        yaml_content = """
+calendar:
+  workdays: [mon, tue, wed, thu, fri]
+  absences:
+    - member_id: "bob"
+      date: "2026-09-16"
+      name: "私用休暇"
+    - member_id: "alice"
+      date: "2026-09-18"
+"""
+        result = validate_calendar(yaml_content)
+        assert result.valid is True
+        assert len(result.errors) == 0
+        assert len(result.data["absences"]) == 2
+        assert result.data["absences"][0]["member_id"] == "bob"
+        assert result.data["absences"][0]["name"] == "私用休暇"
+        assert result.data["absences"][1]["name"] == ""
+
+    def test_calendar_absences_missing_fields(self):
+        yaml_missing = """
+calendar:
+  absences:
+    - member_id: "bob"
+    - date: "2026-09-16"
+"""
+        result = validate_calendar(yaml_missing)
+        assert result.valid is False
+        assert any("absences[0].date" in e for e in result.errors)
+        assert any("absences[1].member_id" in e for e in result.errors)
+
+    def test_calendar_absences_invalid_date(self):
+        yaml_invalid = """
+calendar:
+  absences:
+    - member_id: "bob"
+      date: "2026-02-30"
+"""
+        result = validate_calendar(yaml_invalid)
+        assert result.valid is False
+        assert any("date" in e for e in result.errors)
+
+    def test_calendar_absences_invalid_name(self):
+        yaml_num_name = """
+calendar:
+  absences:
+    - member_id: "bob"
+      date: "2026-09-16"
+      name: 123
+"""
+        assert validate_calendar(yaml_num_name).valid is False
+
+        yaml_null_name = """
+calendar:
+  absences:
+    - member_id: "bob"
+      date: "2026-09-16"
+      name: null
+"""
+        assert validate_calendar(yaml_null_name).valid is False
+
+    def test_calendar_absences_duplicate(self):
+        yaml_dup = """
+calendar:
+  absences:
+    - member_id: "bob"
+      date: "2026-09-16"
+      name: "休暇1"
+    - member_id: "bob"
+      date: "2026-09-16"
+      name: "休暇2"
+"""
+        result = validate_calendar(yaml_dup)
+        assert result.valid is False
+        assert any("重複" in e for e in result.errors)
+
+    def test_calendar_absences_not_list(self):
+        yaml_not_list = "calendar:\n  absences: 'none'\n"
+        assert validate_calendar(yaml_not_list).valid is False
+
+
+class TestActualsLogicalIntegrity:
+    """Milestone 3 Issue #25: 実績工数・個別不在の論理整合性検証."""
+
+    @pytest.fixture
+    def valid_env(self):
+        members = [
+            {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["frontend", "backend"]},
+            {"id": "bob", "name": "Bob", "max_capacity": 0.8, "skills": ["backend"]},
+        ]
+        tasks = [
+            {"id": "task-api", "title": "API", "estimate_hours": 16.0, "required_skills": ["backend"], "depends_on": []},
+            {"id": "task-ui", "title": "UI", "estimate_hours": 24.0, "required_skills": ["frontend"], "depends_on": ["task-api"]},
+        ]
+        calendar = {
+            "workdays": ["mon", "tue", "wed", "thu", "fri"],
+            "holidays": [],
+            "absences": [
+                {"member_id": "bob", "date": "2026-09-16", "name": "休暇"},
+            ],
+        }
+        return members, tasks, calendar
+
+    def test_valid_actuals_logical_integrity(self, valid_env):
+        members, tasks, calendar = valid_env
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-api", "hours": 6.0},
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-ui", "hours": 2.0},
+            ],
+            "task_progress": [
+                {"task_id": "task-api", "remaining_hours": 10.0, "status": "in_progress"},
+            ],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is True
+        assert len(res.errors) == 0
+
+    def test_undefined_member_in_work_logs(self, valid_env):
+        members, tasks, calendar = valid_env
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-10", "member_id": "charlie", "task_id": "task-api", "hours": 4.0},
+            ],
+            "task_progress": [],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("未定義のメンバ" in e and "charlie" in e for e in res.errors)
+
+    def test_undefined_member_in_absences(self, valid_env):
+        members, tasks, calendar = valid_env
+        calendar["absences"] = [
+            {"member_id": "charlie", "date": "2026-09-16", "name": "休暇"},
+        ]
+        res = validate_logical_integrity(members, tasks, calendar)
+        assert res.valid is False
+        assert any("未定義のメンバ" in e and "charlie" in e for e in res.errors)
+
+    def test_undefined_task_in_work_logs(self, valid_env):
+        members, tasks, calendar = valid_env
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-nonexistent", "hours": 4.0},
+            ],
+            "task_progress": [],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("未定義のタスク" in e and "task-nonexistent" in e for e in res.errors)
+
+    def test_undefined_task_in_task_progress(self, valid_env):
+        members, tasks, calendar = valid_env
+        actuals = {
+            "work_logs": [],
+            "task_progress": [
+                {"task_id": "task-nonexistent", "remaining_hours": 0.0, "status": "completed"},
+            ],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("未定義のタスク" in e and "task-nonexistent" in e for e in res.errors)
+
+    def test_daily_work_logs_exceed_24h(self, valid_env):
+        members, tasks, calendar = valid_env
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-api", "hours": 16.0},
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-ui", "hours": 9.0},
+            ],
+            "task_progress": [],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("24" in e and "超" in e for e in res.errors)
+
+    def test_absence_conflict_with_work_logs(self, valid_env):
+        members, tasks, calendar = valid_env
+        # Bob is absent on 2026-09-16
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-16", "member_id": "bob", "task_id": "task-api", "hours": 4.0},
+            ],
+            "task_progress": [],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("不在" in e and "2026-09-16" in e and "bob" in e for e in res.errors)
+
+    def test_one_task_one_member_violation(self, valid_env):
+        members, tasks, calendar = valid_env
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-10", "member_id": "alice", "task_id": "task-api", "hours": 4.0},
+                {"date": "2026-09-11", "member_id": "bob", "task_id": "task-api", "hours": 4.0},
+            ],
+            "task_progress": [],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("1タスク1担当者" in e or "複数の担当メンバ" in e for e in res.errors)
+
+
+class TestProjectDataWithActuals:
+    """Milestone 3 Issue #25: validate_project_data の actuals.yaml 統合."""
+
+    def test_project_data_with_valid_actuals(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text(
+            """work_logs:
+  - date: "2026-09-10"
+    member_id: "alice"
+    task_id: "task-api"
+    hours: 4.0
+task_progress:
+  - task_id: "task-api"
+    remaining_hours: 12.0
+    status: "in_progress"
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is True
+        assert res.actuals is not None
+        assert len(res.actuals["work_logs"]) == 1
+
+    def test_project_data_without_actuals_is_valid(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        res = validate_project_data(tmp_path)
+        assert res.valid is True
+        assert res.actuals is None
+
+    def test_project_data_with_invalid_actuals_fails(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text("work_logs: 'invalid'\n", encoding="utf-8")
+        res = validate_project_data(tmp_path)
+        assert res.valid is False
+        assert len(res.errors) > 0
+
 
 

@@ -14,6 +14,7 @@ from typing import Any
 import yaml
 
 VALID_WORKDAYS = {"mon", "tue", "wed", "thu", "fri", "sat", "sun"}
+VALID_TASK_STATUSES = {"not_started", "in_progress", "completed"}
 
 
 @dataclass
@@ -34,6 +35,7 @@ class ProjectValidationResult:
     members: list[dict[str, Any]] | None = None
     tasks: list[dict[str, Any]] | None = None
     calendar: dict[str, Any] | None = None
+    actuals: dict[str, Any] | None = None
 
 
 def is_valid_date(val: Any) -> bool:
@@ -57,6 +59,19 @@ def is_valid_estimate_hours(val: Any) -> bool:
         and val >= 0.1
         and abs(val - round(val * 10) / 10) < 1e-6
     )
+
+
+def is_valid_remaining_hours(val: Any) -> bool:
+    """残工数が 0.0 以上の 0.1 時間刻み（小数点以下1桁まで）の有限な数値であるかを検証する."""
+    return (
+        val is not None
+        and isinstance(val, (int, float))
+        and not isinstance(val, bool)
+        and math.isfinite(val)
+        and val >= 0.0
+        and abs(val - round(val * 10) / 10) < 1e-6
+    )
+
 
 
 def parse_yaml(yaml_string: str, errors: list[str]) -> Any:
@@ -220,6 +235,115 @@ def validate_tasks(yaml_string: str) -> ValidationResult:
     return ValidationResult(valid=len(errors) == 0, errors=errors, data=tasks)
 
 
+def validate_actuals(yaml_string: str) -> ValidationResult:
+    """actuals.yaml のスキーマを検証する."""
+    errors: list[str] = []
+    parsed = parse_yaml(yaml_string, errors)
+    if parsed is None:
+        return ValidationResult(valid=False, errors=errors, data={"work_logs": [], "task_progress": []})
+
+    if not isinstance(parsed, dict):
+        errors.append("actuals: オブジェクトが必須です")
+        return ValidationResult(valid=False, errors=errors, data={"work_logs": [], "task_progress": []})
+
+    work_logs: list[dict[str, Any]] = []
+    if "work_logs" in parsed:
+        raw_wl = parsed["work_logs"]
+        if raw_wl is None or not isinstance(raw_wl, list):
+            errors.append("actuals.work_logs: 配列である必要があります")
+        else:
+            for i, wl in enumerate(raw_wl):
+                prefix = f"actuals.work_logs[{i}]"
+                if not isinstance(wl, dict):
+                    errors.append(f"{prefix}: オブジェクトである必要があります")
+                    continue
+
+                d = wl.get("date")
+                d_str = (
+                    d.isoformat()
+                    if isinstance(d, (datetime.date, datetime.datetime))
+                    else str(d)
+                    if d is not None
+                    else None
+                )
+                if d_str is None or not is_valid_date(d_str):
+                    errors.append(
+                        f"{prefix}.date: 有効な YYYY-MM-DD 形式の日付である必要があります (指定値: {d})"
+                    )
+
+                m_id = wl.get("member_id")
+                if not isinstance(m_id, str) or not m_id:
+                    errors.append(f"{prefix}.member_id: 必須の文字列です")
+
+                t_id = wl.get("task_id")
+                if not isinstance(t_id, str) or not t_id:
+                    errors.append(f"{prefix}.task_id: 必須の文字列です")
+
+                h = wl.get("hours")
+                is_step_01 = is_valid_estimate_hours(h)
+                if not is_step_01:
+                    errors.append(
+                        f"{prefix}.hours: 0.1 以上の 0.1 時間刻み（小数点以下1桁まで）の正の数値である必要があります (指定値: {h})"
+                    )
+
+                work_logs.append({
+                    "date": d_str,
+                    "member_id": m_id,
+                    "task_id": t_id,
+                    "hours": float(h) if is_step_01 else h,
+                })
+
+    task_progress: list[dict[str, Any]] = []
+    seen_tasks: set[str] = set()
+    if "task_progress" in parsed:
+        raw_tp = parsed["task_progress"]
+        if raw_tp is None or not isinstance(raw_tp, list):
+            errors.append("actuals.task_progress: 配列である必要があります")
+        else:
+            for i, tp in enumerate(raw_tp):
+                prefix = f"actuals.task_progress[{i}]"
+                if not isinstance(tp, dict):
+                    errors.append(f"{prefix}: オブジェクトである必要があります")
+                    continue
+
+                t_id = tp.get("task_id")
+                if not isinstance(t_id, str) or not t_id:
+                    errors.append(f"{prefix}.task_id: 必須の文字列です")
+                elif t_id in seen_tasks:
+                    errors.append(f'{prefix}.task_id: "{t_id}" は重複しています')
+                else:
+                    seen_tasks.add(t_id)
+
+                rem = tp.get("remaining_hours")
+                is_valid_rem = is_valid_remaining_hours(rem)
+                if not is_valid_rem:
+                    errors.append(
+                        f"{prefix}.remaining_hours: 0.0 以上の 0.1 時間刻み（小数点以下1桁まで）の数値である必要があります (指定値: {rem})"
+                    )
+
+                status = tp.get("status")
+                if not isinstance(status, str) or status not in VALID_TASK_STATUSES:
+                    errors.append(
+                        f"{prefix}.status: 有効なステータス ({', '.join(sorted(VALID_TASK_STATUSES))}) である必要があります (指定値: {status})"
+                    )
+                elif status == "completed" and is_valid_rem and float(rem) != 0.0:
+                    errors.append(
+                        f'{prefix}: status が "completed" の場合、remaining_hours は 0.0 である必要があります (指定値: {rem})'
+                    )
+
+                task_progress.append({
+                    "task_id": t_id,
+                    "remaining_hours": float(rem) if is_valid_rem else rem,
+                    "status": status,
+                })
+
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        data={"work_logs": work_logs, "task_progress": task_progress},
+    )
+
+
 def validate_calendar(yaml_string: str) -> ValidationResult:
     """calendar.yaml のスキーマを検証する."""
     errors: list[str] = []
@@ -295,10 +419,52 @@ def validate_calendar(yaml_string: str) -> ValidationResult:
 
                 holidays.append({"date": d_str, "name": name})
 
+    absences: list[dict[str, Any]] = []
+    seen_absences: set[tuple[str, str]] = set()
+    if "absences" in cal:
+        raw_abs = cal["absences"]
+        if raw_abs is None or not isinstance(raw_abs, list):
+            errors.append("calendar.absences: 配列である必要があります")
+        else:
+            for i, a in enumerate(raw_abs):
+                prefix = f"calendar.absences[{i}]"
+                if not isinstance(a, dict):
+                    errors.append(f"{prefix}: オブジェクトである必要があります")
+                    continue
+                m_id = a.get("member_id")
+                if not isinstance(m_id, str) or not m_id:
+                    errors.append(f"{prefix}.member_id: 必須の文字列です")
+
+                raw_date = a.get("date")
+                d_str = (
+                    raw_date.isoformat()
+                    if isinstance(raw_date, (datetime.date, datetime.datetime))
+                    else str(raw_date)
+                    if raw_date is not None
+                    else None
+                )
+                if d_str is None or not is_valid_date(d_str):
+                    errors.append(
+                        f"{prefix}.date: 有効な YYYY-MM-DD 形式の日付である必要があります (指定値: {raw_date})"
+                    )
+                elif m_id and (m_id, d_str) in seen_absences:
+                    errors.append(f'{prefix}: メンバ "{m_id}" の日付 "{d_str}" の不在が重複しています')
+                elif m_id and d_str:
+                    seen_absences.add((m_id, d_str))
+
+                name = ""
+                if "name" in a:
+                    if not isinstance(a["name"], str):
+                        errors.append(f"{prefix}.name: 文字列である必要があります")
+                    else:
+                        name = a["name"]
+
+                absences.append({"member_id": m_id, "date": d_str, "name": name})
+
     return ValidationResult(
         valid=len(errors) == 0,
         errors=errors,
-        data={"workdays": workdays, "holidays": holidays},
+        data={"workdays": workdays, "holidays": holidays, "absences": absences},
     )
 
 
@@ -306,8 +472,9 @@ def validate_logical_integrity(
     members: list[dict[str, Any]],
     tasks: list[dict[str, Any]],
     calendar: dict[str, Any] | None = None,
+    actuals: dict[str, Any] | None = None,
 ) -> ValidationResult:
-    """タスク依存関係・循環参照・スキル充足等の論理整合性を検証する."""
+    """タスク依存関係・循環参照・スキル充足・実績・不在等の論理整合性を検証する."""
     errors: list[str] = []
     if not isinstance(tasks, list):
         return ValidationResult(valid=True, errors=[])
@@ -329,10 +496,6 @@ def validate_logical_integrity(
                 )
 
     # 2. 循環依存検知 (DFS Cycle Detection)
-    # 現実的なタスク規模（数百〜数千ノード）では Python のデフォルト再帰深度上限（通常 1000）で
-    # 十分に処理可能であるが、将来的に超大規模な依存グラフや極めて深い依存チェーンに対応する場合は、
-    # コールスタック枯渇（RecursionError）を防止するために明示的なスタックを用いた反復 DFS (Iterative DFS) への
-    # 移行を検討する。
     visited: dict[str, int] = {}
     reported_cycles: set[tuple[str, ...]] = set()
 
@@ -371,7 +534,13 @@ def validate_logical_integrity(
             dfs(task_id, [])
 
     # 3. 未定義スキル参照チェック (Undefined Skill Reference)
+    member_ids: set[str] = set()
     if isinstance(members, list):
+        member_ids = {
+            m["id"]
+            for m in members
+            if isinstance(m, dict) and isinstance(m.get("id"), str)
+        }
         member_skill_sets = [
             set(m.get("skills", []))
             for m in members
@@ -398,11 +567,98 @@ def validate_logical_integrity(
                     f"をすべて保有するメンバが存在しません。解決のヒント: members.yaml の skills にスキルを追加するか、タスクの必須スキルを見直してください"
                 )
 
+    # 4. カレンダー個別不在の整合性チェック (Calendar Absences)
+    absent_member_dates: set[tuple[str, str]] = set()
+    if calendar and isinstance(calendar, dict) and isinstance(calendar.get("absences"), list):
+        for i, a in enumerate(calendar["absences"]):
+            if not isinstance(a, dict):
+                continue
+            m_id = a.get("member_id")
+            d = a.get("date")
+            if m_id and m_id not in member_ids:
+                errors.append(
+                    f'calendar.absences[{i}].member_id: 未定義のメンバ "{m_id}" を参照しています。'
+                    f"解決のヒント: members.yaml にメンバを定義してください"
+                )
+            if m_id and d:
+                absent_member_dates.add((m_id, d))
+
+    # 5. 実績工数・タスク進捗の論理整合性チェック (Actuals)
+    if actuals and isinstance(actuals, dict):
+        work_logs = actuals.get("work_logs", [])
+        task_progress = actuals.get("task_progress", [])
+
+        daily_hours: dict[tuple[str, str], float] = {}
+        task_members: dict[str, set[str]] = {}
+
+        if isinstance(work_logs, list):
+            for i, wl in enumerate(work_logs):
+                if not isinstance(wl, dict):
+                    continue
+                m_id = wl.get("member_id")
+                t_id = wl.get("task_id")
+                d = wl.get("date")
+                h = wl.get("hours")
+
+                if m_id and m_id not in member_ids:
+                    errors.append(
+                        f'actuals.work_logs[{i}].member_id: 未定義のメンバ "{m_id}" を参照しています。'
+                        f"解決のヒント: members.yaml にメンバを定義してください"
+                    )
+
+                if t_id and t_id not in task_map:
+                    errors.append(
+                        f'actuals.work_logs[{i}].task_id: 未定義のタスク "{t_id}" を参照しています。'
+                        f"解決のヒント: tasks.yaml にタスクを定義してください"
+                    )
+
+                if m_id and t_id:
+                    task_members.setdefault(t_id, set()).add(m_id)
+
+                if m_id and d and isinstance(h, (int, float)) and not isinstance(h, bool):
+                    daily_hours[(m_id, d)] = round(daily_hours.get((m_id, d), 0.0) + float(h), 6)
+
+                # 不在日との矛盾チェック
+                if m_id and d and (m_id, d) in absent_member_dates:
+                    errors.append(
+                        f'actuals.work_logs[{i}]: メンバ "{m_id}" は日付 "{d}" に不在として登録されていますが、実績工数が記録されています。'
+                        f"解決のヒント: 不在日または実績記録を見直してください"
+                    )
+
+        # 24h 超過チェック
+        for (m_id, d), total_h in sorted(daily_hours.items()):
+            if total_h > 24.0:
+                errors.append(
+                    f'actuals.work_logs: メンバ "{m_id}" の日付 "{d}" の実績工数合計 ({round(total_h, 1)}h) が 24h を超えています。'
+                    f"解決のヒント: 実績工数の入力値を確認してください"
+                )
+
+        # 1タスク1担当者原則チェック
+        for t_id, m_set in sorted(task_members.items()):
+            if len(m_set) > 1:
+                m_list = ", ".join(sorted(m_set))
+                errors.append(
+                    f'actuals.work_logs: タスク "{t_id}" に複数の担当メンバ ({m_list}) の実績が記録されています。'
+                    f"Taskweave では1タスク1担当者原則に基づき、同一タスクへの複数メンバの実績記録は許可されません"
+                )
+
+        # task_progress checks
+        if isinstance(task_progress, list):
+            for i, tp in enumerate(task_progress):
+                if not isinstance(tp, dict):
+                    continue
+                t_id = tp.get("task_id")
+                if t_id and t_id not in task_map:
+                    errors.append(
+                        f'actuals.task_progress[{i}].task_id: 未定義のタスク "{t_id}" を参照しています。'
+                        f"解決のヒント: tasks.yaml にタスクを定義してください"
+                    )
+
     return ValidationResult(valid=len(errors) == 0, errors=errors)
 
 
 def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
-    """プロジェクト原本 YAML ディレクトリから members, tasks, calendar を読み込んで一括検証する."""
+    """プロジェクト原本 YAML ディレクトリから members, tasks, calendar, actuals を読み込んで一括検証する."""
     p = Path(dir_path)
     errors: list[str] = []
     all_valid = True
@@ -410,6 +666,7 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
     members_data = None
     tasks_data = None
     calendar_data = None
+    actuals_data = None
 
     # members.yaml
     members_path = p / "members.yaml"
@@ -450,8 +707,24 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
         all_valid = False
         errors.append(f"calendar.yaml 読み込み失敗: {err}")
 
+    # actuals.yaml (オプショナル)
+    actuals_path = p / "actuals.yaml"
+    if actuals_path.exists():
+        try:
+            content = actuals_path.read_text(encoding="utf-8")
+            res = validate_actuals(content)
+            if not res.valid:
+                all_valid = False
+                errors.extend(res.errors)
+            actuals_data = res.data
+        except Exception as err:
+            all_valid = False
+            errors.append(f"actuals.yaml 読み込み失敗: {err}")
+
     if all_valid and members_data is not None and tasks_data is not None and calendar_data is not None:
-        logical_res = validate_logical_integrity(members_data, tasks_data, calendar_data)
+        logical_res = validate_logical_integrity(
+            members_data, tasks_data, calendar_data, actuals=actuals_data
+        )
         if not logical_res.valid:
             all_valid = False
             errors.extend(logical_res.errors)
@@ -462,6 +735,7 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
         members=members_data,
         tasks=tasks_data,
         calendar=calendar_data,
+        actuals=actuals_data,
     )
 
 
