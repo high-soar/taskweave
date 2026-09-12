@@ -4,7 +4,7 @@ title: 原本 YAML スキーマ定義
 description: メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 tags: [schema, yaml, milestone-1]
 status: implemented
-issues: [1, 2, 3, 4]
+issues: [1, 2, 3, 4, 23]
 generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-10T14:45:00Z }
 verified: { by: human:high-soar, at: 2026-09-10T14:42:20Z }
 ---
@@ -246,7 +246,11 @@ YAGNI 原則（不要な複雑性の排除）に基づき、以下の項目は�
 検証 CLI は次の形式で実行します。
 
 ```sh
+# Taskweave CLI (Python / uv)
+taskweave validate [directory]
+
+# または npm スクリプト経由
 npm run validate -- [directory]
 ```
 
-`directory` の省略時は `data/` を対象とします。指定ディレクトリにある 3 つの原本 YAML をすべて読み込み、構文・型制約およびファイル間の論理整合性（循環依存、未定義参照）を検証します。すべて有効なら終了コード `0`、1 つでも読み込み、スキーマ違反、または論理整合性違反があった場合は終了コード `1` を返します。診断は `<file>:<line>: <message>` 形式で標準エラー出力へ出力します。
+`directory` の省略時は `data/` を対象とします。指定ディレクトリにある 3 つの原本 YAML をすべて読み込み、構文・型制約およびファイル間の論理整合性（循環依存、未定義参照、未充足スキル）を検証します。すべて有効なら終了コード `0`、1 つでも読み込み、スキーマ違反、または論理整合性違反があった場合は終了コード `1` を返します。診断は `<file>:<line>: <message>` 形式で標準エラー出力へ出力します。
