@@ -1446,5 +1446,35 @@ def test_load_project_data_include_actuals(repo_root: Path):
     assert actuals is None
 
 
+def test_replan_scenario_10_as_of_date_boundary_work_log_not_in_past():
+    """as_of_date 当日 (date == as_of_date) の実績ログは過去実績に含まれず、厳密に date < as_of_date のみが過去実績となること."""
+    members = [{"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]}]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    project_start = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 3)
+
+    tasks = [{"id": "t1", "title": "T1", "estimate_hours": 16.0, "required_skills": ["backend"]}]
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-02", "member_id": "alice", "task_id": "t1", "hours": 8.0},
+            # 2026-09-03 は as_of_date 当日のため、過去実績 (date < as_of_date) から除外される
+            {"date": "2026-09-03", "member_id": "alice", "task_id": "t1", "hours": 4.0},
+        ],
+    }
+
+    result = solve_schedule(members, tasks, calendar, project_start, as_of_date=as_of_date, actuals_data=actuals)
+    assert result["status"] == "OPTIMAL"
+
+    t1 = result["tasks"]["t1"]
+    # 過去実績として集計されるのは 2026-09-02 の 8.0h のみ
+    assert t1["total_logged_hours"] == 8.0
+    # 残工数は 16.0 - 8.0 = 8.0h となり、2026-09-03 (as_of_date 当日) に再計画される
+    assert t1["remaining_hours"] == 8.0
+    assert t1["daily_hours"]["2026-09-02"] == 8.0
+    assert t1["daily_hours"]["2026-09-03"] == 8.0  # 新たに再計画された 8.0h
+    assert result["member_daily_work"]["alice"]["2026-09-02"] == 8.0
+    assert result["member_daily_work"]["alice"]["2026-09-03"] == 8.0
+
+
 
 
