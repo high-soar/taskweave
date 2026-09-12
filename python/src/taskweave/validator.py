@@ -47,6 +47,18 @@ def is_valid_date(val: Any) -> bool:
         return False
 
 
+def is_valid_estimate_hours(val: Any) -> bool:
+    """見積工数が 0.1 以上の 0.1 時間刻み（小数点以下1桁まで）の正の数値であるかを検証する."""
+    return (
+        val is not None
+        and isinstance(val, (int, float))
+        and not isinstance(val, bool)
+        and math.isfinite(val)
+        and val >= 0.1
+        and abs(val - round(val * 10) / 10) < 1e-6
+    )
+
+
 def parse_yaml(yaml_string: str, errors: list[str]) -> Any:
     """YAML 文字列をパースし、空や構文エラーを検知する."""
     if not isinstance(yaml_string, str) or yaml_string.strip() == "":
@@ -163,14 +175,7 @@ def validate_tasks(yaml_string: str) -> ValidationResult:
             errors.append(f"{prefix}.title: 必須の文字列です")
 
         est = t.get("estimate_hours")
-        is_step_01 = (
-            est is not None
-            and isinstance(est, (int, float))
-            and not isinstance(est, bool)
-            and math.isfinite(est)
-            and est >= 0.1
-            and abs(est - round(est * 10) / 10) < 1e-6
-        )
+        is_step_01 = is_valid_estimate_hours(est)
         if not is_step_01:
             errors.append(
                 f"{prefix}.estimate_hours: 0.1 以上の 0.1 時間刻み（小数点以下1桁まで）の正の数値である必要があります"
@@ -234,9 +239,14 @@ def validate_calendar(yaml_string: str) -> ValidationResult:
     workdays = ["mon", "tue", "wed", "thu", "fri"]
     if "workdays" in cal:
         raw_wd = cal["workdays"]
-        if raw_wd is None or not isinstance(raw_wd, list) or any(w not in VALID_WORKDAYS for w in raw_wd):
+        if raw_wd is None or not isinstance(raw_wd, list):
             errors.append(
                 "calendar.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります"
+            )
+        elif any(w not in VALID_WORKDAYS for w in raw_wd):
+            invalid_items = [repr(w) for w in raw_wd if w not in VALID_WORKDAYS]
+            errors.append(
+                f"calendar.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります (不正な要素: {', '.join(invalid_items)})"
             )
         elif len(raw_wd) == 0:
             errors.append("calendar.workdays: 少なくとも1つの有効な稼働曜日を指定する必要があります")
@@ -276,6 +286,8 @@ def validate_calendar(yaml_string: str) -> ValidationResult:
 
                 name = ""
                 if "name" in h:
+                    # 仕様上、name は文字列またはキー未指定（省略）のみ許可し、
+                    # 明示的な null は型不正として拒否する仕様意図（001-yaml-schema.md に準拠）
                     if not isinstance(h["name"], str):
                         errors.append(f"{prefix}.name: 文字列である必要があります")
                     else:
@@ -313,10 +325,14 @@ def validate_logical_integrity(
             if dep_id not in task_map:
                 errors.append(
                     f'tasks[{i}].depends_on[{d}]: 未定義のタスク "{dep_id}" を参照しています '
-                    f'(参照元: "{t.get("id")}"). 解決のヒント: 存在するタスク ID を指定するか、tasks.yaml にタスクを追加してください'
+                    f'(参照元: "{t.get("id")}")。解決のヒント: 存在するタスク ID を指定するか、tasks.yaml にタスクを追加してください'
                 )
 
     # 2. 循環依存検知 (DFS Cycle Detection)
+    # 現実的なタスク規模（数百〜数千ノード）では Python のデフォルト再帰深度上限（通常 1000）で
+    # 十分に処理可能であるが、将来的に超大規模な依存グラフや極めて深い依存チェーンに対応する場合は、
+    # コールスタック枯渇（RecursionError）を防止するために明示的なスタックを用いた反復 DFS (Iterative DFS) への
+    # 移行を検討する。
     visited: dict[str, int] = {}
     reported_cycles: set[tuple[str, ...]] = set()
 
@@ -341,7 +357,7 @@ def validate_logical_integrity(
                             reported_cycles.add(cycle_key)
                             task_index = entry[0]
                             errors.append(
-                                f"tasks[{task_index}].depends_on: タスク依存関係に循環参照が検出されました: {cycle_path}. "
+                                f"tasks[{task_index}].depends_on: タスク依存関係に循環参照が検出されました: {cycle_path}。"
                                 f"解決のヒント: 先行・後続の依存関係を見直して循環を解消してください"
                             )
                     elif state == 0:
@@ -447,4 +463,68 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
         tasks=tasks_data,
         calendar=calendar_data,
     )
+
+
+def validate_schedule_inputs(
+    members_data: list[dict[str, Any]],
+    tasks_data: list[dict[str, Any]],
+    calendar_data: dict[str, Any],
+) -> None:
+    """スケジューリング計算前の入力データ整合性を検証する.
+
+    不正な入力が検出された場合は ValueError を送出する.
+    """
+    # カレンダーの稼働曜日検証
+    workdays_cfg = calendar_data.get("workdays", ["mon", "tue", "wed", "thu", "fri"])
+    allowed_weekdays = {w for w in workdays_cfg if w in VALID_WORKDAYS}
+    if not allowed_weekdays:
+        raise ValueError("calendar.workdays に有効な稼働曜日が指定されていません。")
+
+    # 祝日設定の検証
+    holidays_cfg = calendar_data.get("holidays", [])
+    if isinstance(holidays_cfg, list):
+        for h in holidays_cfg:
+            if not isinstance(h, dict) or "date" not in h or h["date"] is None:
+                raise ValueError(f"calendar.holidays の各項目には 'date' フィールドが必須です: {h}")
+
+    members = {m["id"]: m for m in members_data if isinstance(m, dict) and "id" in m}
+    tasks = {t["id"]: t for t in tasks_data if isinstance(t, dict) and "id" in t}
+
+    # タスク工数の最小単位・0.1h刻み検証、未定義依存タスクの検証 (FR-10)、および必須スキル充足メンバの検証 (FR-4)
+    for t_id, task in tasks.items():
+        est = task.get("estimate_hours", 0)
+        if not is_valid_estimate_hours(est):
+            raise ValueError(
+                f"タスク '{t_id}' の見積工数 ({est}h) は 0.1h 以上の 0.1h 刻み（小数点第1位まで）である必要があります。"
+            )
+        for dep_id in task.get("depends_on", []):
+            if dep_id not in tasks:
+                raise ValueError(
+                    f"タスク '{t_id}' の先行タスク '{dep_id}' が tasks に定義されていません。"
+                )
+        if "required_skills" in task:
+            raw_skills = task["required_skills"]
+            if (
+                raw_skills is None
+                or not isinstance(raw_skills, list)
+                or any(not isinstance(s, str) for s in raw_skills)
+            ):
+                raise ValueError(
+                    f"タスク '{t_id}' の required_skills は文字列のリストである必要があります（null は不可）。"
+                )
+            req_skills = set(raw_skills)
+        else:
+            req_skills = set()
+
+        if req_skills:
+            capable_members = [
+                m_id
+                for m_id, member in members.items()
+                if req_skills.issubset(set(member.get("skills") or []))
+            ]
+            if not capable_members:
+                raise ValueError(
+                    f"タスク '{t_id}' の必須スキル {sorted(req_skills)} をすべて保有するメンバが members に存在しません。"
+                )
+
 

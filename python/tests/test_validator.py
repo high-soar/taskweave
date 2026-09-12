@@ -396,3 +396,16 @@ class TestLogicalIntegrity:
         assert result.valid is False
         assert any("必須スキル" in e and "quantum-computing" in e for e in result.errors)
 
+    def test_split_skills_across_members_unmet(self, valid_members):
+        """Alice has [frontend, backend], Bob has [backend, devops].
+
+        [frontend, devops] cannot be met by any single member.
+        """
+        tasks = [
+            {"id": "task-fullstack", "title": "Fullstack", "estimate_hours": 8, "required_skills": ["frontend", "devops"]},
+        ]
+        result = validate_logical_integrity(valid_members, tasks)
+        assert result.valid is False
+        assert any("必須スキル" in e and "frontend, devops" in e for e in result.errors)
+
+
