@@ -6,10 +6,11 @@ OR-Tools CP-SAT を用いた制約充足・最適化ソルバー。
 
 from __future__ import annotations
 
+from collections import deque
 import datetime
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, overload
 import yaml
 from ortools.sat.python import cp_model
 
@@ -42,6 +43,27 @@ def load_yaml(path: str | Path) -> Any:
     p = Path(path)
     with open(p, encoding="utf-8") as f:
         return yaml.safe_load(f)
+
+
+@overload
+def load_project_data(
+    data_dir: str | Path,
+    include_actuals: Literal[False] = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]: ...
+
+
+@overload
+def load_project_data(
+    data_dir: str | Path,
+    include_actuals: Literal[True],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]: ...
+
+
+@overload
+def load_project_data(
+    data_dir: str | Path,
+    include_actuals: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]] | tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], dict[str, Any] | None]: ...
 
 
 def load_project_data(
@@ -315,10 +337,10 @@ def solve_schedule(
                 dependents[dep_id].append(t_id)
                 in_degree[t_id] += 1
 
-    queue = [t_id for t_id in task_ids if in_degree[t_id] == 0]
+    queue = deque(t_id for t_id in task_ids if in_degree[t_id] == 0)
     topo_order: list[str] = []
     while queue:
-        curr = queue.pop(0)
+        curr = queue.popleft()
         topo_order.append(curr)
         for nxt in dependents[curr]:
             in_degree[nxt] -= 1
@@ -509,6 +531,60 @@ def solve_schedule(
     return result
 
 
+def _build_completed_task_result(
+    t_id: str,
+    task: dict[str, Any],
+    progress: dict[str, Any],
+    daily: dict[str, float],
+    assigned_m: str,
+    project_start_date: datetime.date,
+    workdays_cfg: list[str],
+    holidays_cfg: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any] | None, datetime.date]:
+    """完了タスクの出力辞書と遅延診断情報を構築するヘルパー."""
+    s_date = min(daily.keys()) if daily else project_start_date.isoformat()
+    e_date = max(daily.keys()) if daily else s_date
+    s_d = to_date(s_date)
+    e_d = to_date(e_date)
+
+    w_count = count_workdays_between(s_d, e_d + datetime.timedelta(days=1), workdays_cfg, holidays_cfg)
+    raw_dl = task.get("deadline")
+    norm_dl = to_date(raw_dl).isoformat() if raw_dl else None
+    act_delay = 0
+    if norm_dl and e_d > to_date(norm_dl):
+        act_delay = count_workdays_between(
+            to_date(norm_dl) + datetime.timedelta(days=1),
+            e_d + datetime.timedelta(days=1),
+            workdays_cfg,
+            holidays_cfg,
+        )
+
+    task_result = {
+        "assigned_to": assigned_m,
+        "start_date": s_date,
+        "end_date": e_date,
+        "workdays_count": max(1, w_count),
+        "actual_active_days": len(daily),
+        "estimate_hours": round(float(task["estimate_hours"]), 1),
+        "remaining_hours": 0.0,
+        "total_logged_hours": progress["total_logged_hours"],
+        "status": "completed",
+        "daily_hours": daily,
+        "deadline": norm_dl,
+        "delay_days": act_delay,
+    }
+    delayed_diag = None
+    if act_delay > 0:
+        delayed_diag = {
+            "task_id": t_id,
+            "delay_workdays": act_delay,
+            "deadline": norm_dl,
+            "projected_end_date": e_date,
+            "reason": f"納期 ({norm_dl}) を {act_delay} 稼働日超過",
+        }
+    return task_result, delayed_diag, e_d
+
+
 def _solve_replan(
     members_data: list[dict[str, Any]],
     tasks_data: list[dict[str, Any]],
@@ -562,7 +638,7 @@ def _solve_replan(
         d_str = to_date(wl["date"]).isoformat()
         h = float(wl["hours"])
         past_daily_by_task[t_id][d_str] = round(past_daily_by_task[t_id].get(d_str, 0.0) + h, 1)
-        task_past_member[t_id] = m_id
+        task_past_member.setdefault(t_id, m_id)  # FR-5 / FR-7: 1タスク1担当者前提
         if m_id in member_past_daily:
             member_past_daily[m_id][d_str] = round(member_past_daily[m_id].get(d_str, 0.0) + h, 1)
 
@@ -599,47 +675,14 @@ def _solve_replan(
                 capable = [m["id"] for m in members_data if req.issubset(set(m.get("skills") or []))]
                 assigned_m = capable[0] if capable else members_data[0]["id"]
 
-            s_date = min(daily.keys()) if daily else project_start_date.isoformat()
-            e_date = max(daily.keys()) if daily else s_date
-            s_d = to_date(s_date)
-            e_d = to_date(e_date)
+            task_res, delayed_diag, e_d = _build_completed_task_result(
+                t_id, t, p, daily, assigned_m, project_start_date, workdays_cfg, holidays_cfg
+            )
+            result_tasks[t_id] = task_res
             all_end_dates.append(e_d)
-
-            w_count = count_workdays_between(s_d, e_d + datetime.timedelta(days=1), workdays_cfg, holidays_cfg)
-            raw_dl = t.get("deadline")
-            norm_dl = to_date(raw_dl).isoformat() if raw_dl else None
-            act_delay = 0
-            if norm_dl and e_d > to_date(norm_dl):
-                act_delay = count_workdays_between(
-                    to_date(norm_dl) + datetime.timedelta(days=1),
-                    e_d + datetime.timedelta(days=1),
-                    workdays_cfg,
-                    holidays_cfg,
-                )
-
-            result_tasks[t_id] = {
-                "assigned_to": assigned_m,
-                "start_date": s_date,
-                "end_date": e_date,
-                "workdays_count": max(1, w_count),
-                "actual_active_days": len(daily),
-                "estimate_hours": round(float(t["estimate_hours"]), 1),
-                "remaining_hours": 0.0,
-                "total_logged_hours": p["total_logged_hours"],
-                "status": "completed",
-                "daily_hours": daily,
-                "deadline": norm_dl,
-                "delay_days": act_delay,
-            }
-            if act_delay > 0:
+            if delayed_diag:
                 diagnostics["is_deadline_violated"] = True
-                diagnostics["delayed_tasks"].append({
-                    "task_id": t_id,
-                    "delay_workdays": act_delay,
-                    "deadline": norm_dl,
-                    "projected_end_date": e_date,
-                    "reason": f"納期 ({norm_dl}) を {act_delay} 稼働日超過",
-                })
+                diagnostics["delayed_tasks"].append(delayed_diag)
 
         diagnostics["total_delay_workdays"] = sum(d["delay_workdays"] for d in diagnostics["delayed_tasks"])
         max_e_d = max(all_end_dates) if all_end_dates else first_proj_workday
@@ -798,10 +841,10 @@ def _solve_replan(
                 dependents[dep_id].append(t_id)
                 in_degree[t_id] += 1
 
-    queue = [t_id for t_id in future_task_ids if in_degree[t_id] == 0]
+    queue = deque([t_id for t_id in future_task_ids if in_degree[t_id] == 0])
     topo_order: list[str] = []
     while queue:
-        curr = queue.pop(0)
+        curr = queue.popleft()
         topo_order.append(curr)
         for nxt in dependents[curr]:
             in_degree[nxt] -= 1
@@ -902,46 +945,13 @@ def _solve_replan(
                 capable = [m["id"] for m in members_data if req.issubset(set(m.get("skills") or []))]
                 assigned_m = capable[0] if capable else members_data[0]["id"]
 
-            s_date = min(daily.keys()) if daily else project_start_date.isoformat()
-            e_date = max(daily.keys()) if daily else s_date
-            s_d = to_date(s_date)
-            e_d = to_date(e_date)
-
-            w_count = count_workdays_between(s_d, e_d + datetime.timedelta(days=1), workdays_cfg, holidays_cfg)
-            raw_dl = tasks[t_id].get("deadline")
-            norm_dl = to_date(raw_dl).isoformat() if raw_dl else None
-            act_delay = 0
-            if norm_dl and e_d > to_date(norm_dl):
-                act_delay = count_workdays_between(
-                    to_date(norm_dl) + datetime.timedelta(days=1),
-                    e_d + datetime.timedelta(days=1),
-                    workdays_cfg,
-                    holidays_cfg,
-                )
-
-            result["tasks"][t_id] = {
-                "assigned_to": assigned_m,
-                "start_date": s_date,
-                "end_date": e_date,
-                "workdays_count": max(1, w_count),
-                "actual_active_days": len(daily),
-                "estimate_hours": round(float(tasks[t_id]["estimate_hours"]), 1),
-                "remaining_hours": 0.0,
-                "total_logged_hours": p["total_logged_hours"],
-                "status": "completed",
-                "daily_hours": daily,
-                "deadline": norm_dl,
-                "delay_days": act_delay,
-            }
-            if act_delay > 0:
+            task_res, delayed_diag, _ = _build_completed_task_result(
+                t_id, tasks[t_id], p, daily, assigned_m, project_start_date, workdays_cfg, holidays_cfg
+            )
+            result["tasks"][t_id] = task_res
+            if delayed_diag:
                 result["diagnostics"]["is_deadline_violated"] = True
-                result["diagnostics"]["delayed_tasks"].append({
-                    "task_id": t_id,
-                    "delay_workdays": act_delay,
-                    "deadline": norm_dl,
-                    "projected_end_date": e_date,
-                    "reason": f"納期 ({norm_dl}) を {act_delay} 稼働日超過",
-                })
+                result["diagnostics"]["delayed_tasks"].append(delayed_diag)
 
         # 2. 未来タスクの出力構築 (AC-3, AC-4)
         for t_id in future_task_ids:
