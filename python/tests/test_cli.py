@@ -228,7 +228,8 @@ class TestReplanCLI:
     def test_replan_missing_as_of_fails(self, basic_project_files):
         (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
         result = run_cli("replan", str(basic_project_files))
-        assert result.returncode != 0
+        assert result.returncode == 2
+        assert "--as-of" in result.stderr
 
     def test_replan_text_output_basic(self, basic_project_files):
         (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")

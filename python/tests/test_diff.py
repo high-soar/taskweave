@@ -255,3 +255,83 @@ task_progress:
         assert "Makespan:" in text
         assert "t1" in text
         assert "workload_increase" in text or "工数増大" in text
+
+    def test_diff_null_values_handling_r1(self):
+        """[R1]: None (null) 値が含まれる辞書でもクラッシュせず正常に差分とサマリーが生成されること."""
+        baseline = {
+            "status": "OPTIMAL",
+            "makespan_workdays": None,
+            "tasks": {
+                "t1": {
+                    "start_date": "2026-09-07",
+                    "end_date": "2026-09-07",
+                    "assigned_to": "alice",
+                    "workdays_count": None,
+                    "delay_days": None,
+                }
+            },
+        }
+        replanned = {
+            "status": "OPTIMAL",
+            "makespan_workdays": 3,
+            "tasks": {
+                "t1": {
+                    "start_date": "2026-09-07",
+                    "end_date": "2026-09-09",
+                    "assigned_to": "alice",
+                    "workdays_count": None,
+                    "delay_days": None,
+                    "estimate_hours": None,
+                    "remaining_hours": None,
+                    "total_logged_hours": None,
+                }
+            },
+        }
+
+        diff = compute_schedule_diff(baseline, replanned)
+        assert diff["makespan"]["baseline_workdays"] == 0
+        assert diff["makespan"]["replanned_workdays"] == 3
+        assert diff["tasks"]["t1"]["diff"]["end_date_slip_days"] == 2
+        text = format_diff_summary(diff)
+        assert "t1" in text
+
+    def test_diff_deadline_fallback_to_tasks_data_r2(self):
+        """[R2]: replanned に deadline が存在しない場合でも tasks_data の deadline をフォールバック利用すること."""
+        baseline = {
+            "status": "OPTIMAL",
+            "makespan_workdays": 1,
+            "tasks": {
+                "t1": {
+                    "start_date": "2026-09-07",
+                    "end_date": "2026-09-07",
+                    "assigned_to": "alice",
+                    "workdays_count": 1,
+                    "delay_days": 0,
+                }
+            },
+        }
+        replanned = {
+            "status": "OPTIMAL",
+            "makespan_workdays": 2,
+            "tasks": {
+                "t1": {
+                    "start_date": "2026-09-07",
+                    "end_date": "2026-09-08",
+                    "assigned_to": "alice",
+                    "workdays_count": 2,
+                    "delay_days": 0,
+                    # deadline は意図的に省略
+                }
+            },
+        }
+        tasks_data = [
+            {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "deadline": "2026-09-07"},
+        ]
+
+        diff = compute_schedule_diff(baseline, replanned, tasks_data=tasks_data)
+        assert len(diff["recommendations"]) == 1
+        rec = diff["recommendations"][0]
+        assert rec["task_id"] == "t1"
+        assert rec["current_deadline"] == "2026-09-07"
+        assert rec["recommended_deadline"] == "2026-09-08"
+
