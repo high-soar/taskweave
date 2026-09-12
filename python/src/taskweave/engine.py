@@ -131,6 +131,60 @@ def count_workdays_between(
     return count
 
 
+def get_absences_config(calendar_data: dict[str, Any]) -> list[dict[str, Any]]:
+    """calendar_data から absences 設定リストを取得する."""
+    absences = calendar_data.get("absences")
+    if absences is None and isinstance(calendar_data.get("calendar"), dict):
+        absences = calendar_data["calendar"].get("absences")
+    return absences if isinstance(absences, list) else []
+
+
+def parse_absences(absences_config: list[dict[str, Any]]) -> set[tuple[str, datetime.date]]:
+    """個別不在設定リストから (member_id, date) のセットを生成する."""
+    absent_set: set[tuple[str, datetime.date]] = set()
+    for a in absences_config:
+        if isinstance(a, dict) and a.get("member_id") and a.get("date") is not None:
+            absent_set.add((a["member_id"], to_date(a["date"])))
+    return absent_set
+
+
+def _find_best_hint_allocation(
+    candidate_members: list[str],
+    workload: int,
+    min_start: int,
+    horizon_days: int,
+    daily_caps: dict[tuple[str, int], int],
+    member_next_free_day: dict[str, int],
+    member_day_used: dict[tuple[str, int], int],
+) -> tuple[str, list[tuple[int, int]]] | None:
+    """ヒント生成用: 候補メンバから終了日が最も早くなる割当を貪欲探索する."""
+    best_m: str | None = None
+    best_alloc: list[tuple[int, int]] = []
+    best_end = horizon_days + 1
+
+    for m_id in candidate_members:
+        curr_d = max(min_start, member_next_free_day[m_id])
+        rem = workload
+        alloc: list[tuple[int, int]] = []
+        while rem > 0 and curr_d < horizon_days:
+            avail = daily_caps[m_id, curr_d] - member_day_used[m_id, curr_d]
+            if avail > 0:
+                w = min(avail, rem)
+                alloc.append((curr_d, w))
+                rem -= w
+            curr_d += 1
+        if rem == 0 and alloc:
+            end_d = alloc[-1][0]
+            if end_d < best_end:
+                best_end = end_d
+                best_m = m_id
+                best_alloc = alloc
+
+    if best_m is not None and best_alloc:
+        return best_m, best_alloc
+    return None
+
+
 def solve_schedule(
     members_data: list[dict[str, Any]],
     tasks_data: list[dict[str, Any]],
@@ -195,12 +249,14 @@ def solve_schedule(
     # 計画地平 (Horizon) の決定 (FR-11)
     workdays_cfg = calendar_data.get("workdays", ["mon", "tue", "wed", "thu", "fri"])
     holidays_cfg = calendar_data.get("holidays", [])
+    absences_cfg = get_absences_config(calendar_data)
+    absent_set = parse_absences(absences_cfg)
 
     if horizon_days is None:
         min_cap = min(member_capacities.values()) if member_capacities else (base_hours_per_day * scale)
         total_workload = sum(round(t["estimate_hours"] * scale) for t in tasks_data)
         min_needed = math.ceil(total_workload / min_cap) if min_cap > 0 else 30
-        horizon_days = max(30, min_needed + len(tasks_data) + 10)
+        horizon_days = max(30, min_needed + len(tasks_data) + len(absences_cfg) + 10)
 
     workdays = build_workdays(
         start_date=start_date,
@@ -208,6 +264,13 @@ def solve_schedule(
         workdays_config=workdays_cfg,
         holidays_config=holidays_cfg,
     )
+
+    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16)
+    daily_caps = {
+        (m_id, d): (0 if (m_id, workdays[d]) in absent_set else member_capacities[m_id])
+        for m_id in member_ids
+        for d in range(horizon_days)
+    }
 
     # モデル構築
     model = cp_model.CpModel()
@@ -236,8 +299,8 @@ def solve_schedule(
     for t_id in task_ids:
         t_est = round(tasks[t_id]["estimate_hours"] * scale)
         for m_id in member_ids:
-            cap = member_capacities[m_id]
             for d in range(horizon_days):
+                cap = daily_caps[m_id, d]
                 work[t_id, m_id, d] = model.NewIntVar(0, min(cap, t_est), f"work_{t_id}_{m_id}_{d}")
 
     # 制約: 担当していないメンバの日別作業時間は 0 (タスク・メンバ単位で集約し、線形制約数を削減)
@@ -251,10 +314,10 @@ def solve_schedule(
         t_est = round(task["estimate_hours"] * scale)
         model.Add(sum(work[t_id, m_id, d] for m_id in member_ids for d in range(horizon_days)) == t_est)
 
-    # 制約: メンバごとの日別稼働上限 (FR-2)
+    # 制約: メンバごとの日別稼働上限 (FR-2, FR-16)
     for m_id in member_ids:
-        cap = member_capacities[m_id]
         for d in range(horizon_days):
+            cap = daily_caps[m_id, d]
             model.Add(sum(work[t_id, m_id, d] for t_id in task_ids) <= cap)
 
     # 3. start_day[t], end_day[t]: タスクの開始・終了稼働日インデックス
@@ -352,6 +415,7 @@ def solve_schedule(
         topo_order.extend(remaining)
 
     member_next_free_day = {m_id: 0 for m_id in member_ids}
+    member_day_used = {(m_id, d): 0 for m_id in member_ids for d in range(horizon_days)}
     hint_end_day: dict[str, int] = {}
 
     for t_id in topo_order:
@@ -370,36 +434,34 @@ def solve_schedule(
         if not capable_members:
             continue
 
-        best_m = capable_members[0]
-        best_start = horizon_days
-        for m_id in capable_members:
-            s = max(min_start, member_next_free_day[m_id])
-            if s < best_start:
-                best_start = s
-                best_m = m_id
-
         t_est = round(tasks[t_id]["estimate_hours"] * scale)
-        cap = member_capacities[best_m]
-        days_needed = math.ceil(t_est / cap) if cap > 0 else 1
+        alloc_res = _find_best_hint_allocation(
+            candidate_members=capable_members,
+            workload=t_est,
+            min_start=min_start,
+            horizon_days=horizon_days,
+            daily_caps=daily_caps,
+            member_next_free_day=member_next_free_day,
+            member_day_used=member_day_used,
+        )
 
-        if best_start + days_needed <= horizon_days:
+        if alloc_res is not None:
+            best_m, alloc = alloc_res
+            s_d = alloc[0][0]
+            e_d = alloc[-1][0]
             model.AddHint(assigned[t_id, best_m], 1)
             for other_m in member_ids:
                 if other_m != best_m:
                     model.AddHint(assigned[t_id, other_m], 0)
 
-            model.AddHint(start_day[t_id], best_start)
-            end_s = best_start + days_needed - 1
-            model.AddHint(end_day[t_id], end_s)
-            hint_end_day[t_id] = end_s
-            member_next_free_day[best_m] = end_s + 1
+            model.AddHint(start_day[t_id], s_d)
+            model.AddHint(end_day[t_id], e_d)
+            hint_end_day[t_id] = e_d
+            member_next_free_day[best_m] = e_d + 1
 
-            remaining_work = t_est
-            for offset in range(days_needed):
-                d = best_start + offset
-                w = min(cap, remaining_work)
+            for d, w in alloc:
                 model.AddHint(work[t_id, best_m, d], w)
-                remaining_work -= w
+                member_day_used[best_m, d] += w
 
     # ソルバー実行
     solver = cp_model.CpSolver()
@@ -612,6 +674,8 @@ def _solve_replan(
 
     workdays_cfg = calendar_data.get("workdays", ["mon", "tue", "wed", "thu", "fri"])
     holidays_cfg = calendar_data.get("holidays", [])
+    absences_cfg = get_absences_config(calendar_data)
+    absent_set = parse_absences(absences_cfg)
     allowed_weekdays = {WEEKDAY_MAP[w] for w in workdays_cfg if w in WEEKDAY_MAP}
     holiday_dates = parse_holiday_dates(holidays_cfg)
     first_proj_workday = build_workdays(project_start_date, 1, workdays_cfg, holidays_cfg)[0]
@@ -703,7 +767,7 @@ def _solve_replan(
         min_cap = min(member_capacities.values()) if member_capacities else (base_hours_per_day * scale)
         total_workload = sum(round(progress_by_task[t_id]["remaining_hours"] * scale) for t_id in future_task_ids)
         min_needed = math.ceil(total_workload / min_cap) if min_cap > 0 else 30
-        future_horizon_days = max(30, min_needed + len(future_task_ids) + 10)
+        future_horizon_days = max(30, min_needed + len(future_task_ids) + len(absences_cfg) + 10)
     else:
         future_horizon_days = horizon_days
 
@@ -714,6 +778,13 @@ def _solve_replan(
         workdays_config=workdays_cfg,
         holidays_config=holidays_cfg,
     )
+
+    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16)
+    future_daily_caps = {
+        (m_id, d): (0 if (m_id, future_workdays[d]) in absent_set else member_capacities[m_id])
+        for m_id in member_ids
+        for d in range(future_horizon_days)
+    }
 
     model = cp_model.CpModel()
 
@@ -748,8 +819,8 @@ def _solve_replan(
     for t_id in future_task_ids:
         t_rem = round(progress_by_task[t_id]["remaining_hours"] * scale)
         for m_id in member_ids:
-            cap = member_capacities[m_id]
             for d in range(future_horizon_days):
+                cap = future_daily_caps[m_id, d]
                 work[t_id, m_id, d] = model.NewIntVar(0, min(cap, t_rem), f"work_{t_id}_{m_id}_{d}")
 
     for t_id in future_task_ids:
@@ -762,8 +833,8 @@ def _solve_replan(
         model.Add(sum(work[t_id, m_id, d] for m_id in member_ids for d in range(future_horizon_days)) == t_rem)
 
     for m_id in member_ids:
-        cap = member_capacities[m_id]
         for d in range(future_horizon_days):
+            cap = future_daily_caps[m_id, d]
             model.Add(sum(work[t_id, m_id, d] for t_id in future_task_ids) <= cap)
 
     # 3. start_day, end_day
@@ -856,6 +927,7 @@ def _solve_replan(
         topo_order.extend(remaining)
 
     member_next_free_day = {m_id: 0 for m_id in member_ids}
+    member_day_used = {(m_id, d): 0 for m_id in member_ids for d in range(future_horizon_days)}
     hint_end_day: dict[str, int] = {}
 
     for t_id in topo_order:
@@ -868,49 +940,47 @@ def _solve_replan(
         pinned_m = task_past_member.get(t_id) if p["total_logged_hours"] > 0 else None
 
         if pinned_m:
-            best_m = pinned_m
-            best_start = max(min_start, member_next_free_day[best_m])
+            candidate_members = [pinned_m]
         else:
             raw_skills = tasks[t_id].get("required_skills")
             req_skills = set(raw_skills) if isinstance(raw_skills, list) else set()
-            capable_members = [
+            candidate_members = [
                 m_id
                 for m_id in member_ids
                 if req_skills.issubset(set(members[m_id].get("skills") or []))
             ]
-            if not capable_members:
-                continue
 
-            best_m = capable_members[0]
-            best_start = future_horizon_days
-            for m_id in capable_members:
-                s = max(min_start, member_next_free_day[m_id])
-                if s < best_start:
-                    best_start = s
-                    best_m = m_id
+        if not candidate_members:
+            continue
 
         t_rem = round(p["remaining_hours"] * scale)
-        cap = member_capacities[best_m]
-        days_needed = math.ceil(t_rem / cap) if cap > 0 else 1
+        alloc_res = _find_best_hint_allocation(
+            candidate_members=candidate_members,
+            workload=t_rem,
+            min_start=min_start,
+            horizon_days=future_horizon_days,
+            daily_caps=future_daily_caps,
+            member_next_free_day=member_next_free_day,
+            member_day_used=member_day_used,
+        )
 
-        if best_start + days_needed <= future_horizon_days:
+        if alloc_res is not None:
+            best_m, alloc = alloc_res
+            s_d = alloc[0][0]
+            e_d = alloc[-1][0]
             model.AddHint(assigned[t_id, best_m], 1)
             for other_m in member_ids:
                 if other_m != best_m:
                     model.AddHint(assigned[t_id, other_m], 0)
 
-            model.AddHint(start_day[t_id], best_start)
-            end_s = best_start + days_needed - 1
-            model.AddHint(end_day[t_id], end_s)
-            hint_end_day[t_id] = end_s
-            member_next_free_day[best_m] = end_s + 1
+            model.AddHint(start_day[t_id], s_d)
+            model.AddHint(end_day[t_id], e_d)
+            hint_end_day[t_id] = e_d
+            member_next_free_day[best_m] = e_d + 1
 
-            remaining_work = t_rem
-            for offset in range(days_needed):
-                d = best_start + offset
-                w = min(cap, remaining_work)
+            for d, w in alloc:
                 model.AddHint(work[t_id, best_m, d], w)
-                remaining_work -= w
+                member_day_used[best_m, d] += w
 
     # ソルバー実行 (AC-6)
     solver = cp_model.CpSolver()
