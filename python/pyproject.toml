@@ -12,6 +12,9 @@ dependencies = [
     "pyyaml>=6.0.2",
 ]
 
+[project.scripts]
+taskweave = "taskweave.cli:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
