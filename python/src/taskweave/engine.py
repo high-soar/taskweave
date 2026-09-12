@@ -143,8 +143,11 @@ def parse_absences(absences_config: list[dict[str, Any]]) -> set[tuple[str, date
     """個別不在設定リストから (member_id, date) のセットを生成する."""
     absent_set: set[tuple[str, datetime.date]] = set()
     for a in absences_config:
-        if isinstance(a, dict) and a.get("member_id") and a.get("date") is not None:
-            absent_set.add((a["member_id"], to_date(a["date"])))
+        if isinstance(a, dict) and a.get("member_id") and a.get("date"):
+            try:
+                absent_set.add((a["member_id"], to_date(a["date"])))
+            except (ValueError, TypeError):
+                continue
     return absent_set
 
 

@@ -1693,7 +1693,16 @@ def test_absences_ac5_nested_calendar_and_multi_task_replan():
     assert "2026-09-03" not in result["member_daily_work"].get("bob", {})
 
 
+def test_absences_invalid_or_empty_date_ignored():
+    """absences 内の日付が空文字や不正な場合でもクラッシュせず無視されること."""
+    from taskweave.engine import parse_absences
 
-
-
+    absences_cfg = [
+        {"member_id": "alice", "date": ""},
+        {"member_id": "alice", "date": "invalid-date"},
+        {"member_id": "alice", "date": "2026-09-02"},
+    ]
+    parsed = parse_absences(absences_cfg)
+    assert len(parsed) == 1
+    assert ("alice", datetime.date(2026, 9, 2)) in parsed
 
