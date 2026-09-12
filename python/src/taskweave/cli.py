@@ -45,8 +45,10 @@ def _get_error_path(error_msg: str) -> list[str | int]:
 
 
 def _get_node_line(node: yaml.Node | None, path: list[str | int]) -> int | None:
-    if node is None or not path:
-        return (node.start_mark.line + 1) if node and hasattr(node, "start_mark") else None
+    if node is None:
+        return None
+    if not path:
+        return (node.start_mark.line + 1) if hasattr(node, "start_mark") and node.start_mark else None
 
     current = node
     for part in path:
@@ -54,7 +56,7 @@ def _get_node_line(node: yaml.Node | None, path: list[str | int]) -> int | None:
             if isinstance(current, yaml.SequenceNode) and 0 <= part < len(current.value):
                 current = current.value[part]
             else:
-                break
+                return None
         elif isinstance(part, str):
             if isinstance(current, yaml.MappingNode):
                 found = None
@@ -62,14 +64,16 @@ def _get_node_line(node: yaml.Node | None, path: list[str | int]) -> int | None:
                     if isinstance(k, yaml.ScalarNode) and k.value == part:
                         found = v
                         break
-                if found:
+                if found is not None:
                     current = found
                 else:
-                    break
+                    return None
             else:
-                break
+                return None
+        else:
+            return None
 
-    return (current.start_mark.line + 1) if current and hasattr(current, "start_mark") else None
+    return (current.start_mark.line + 1) if hasattr(current, "start_mark") and current.start_mark else None
 
 
 def _get_error_line(doc_node: yaml.Node | None, error_msg: str, parse_err: yaml.YAMLError | None = None) -> int:
@@ -177,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     parser.print_help()
-    return 1
+    return 0
 
 
 if __name__ == "__main__":

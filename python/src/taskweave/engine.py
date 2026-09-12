@@ -13,6 +13,11 @@ from typing import Any
 import yaml
 from ortools.sat.python import cp_model
 
+from taskweave.validator import (
+    validate_project_data,
+    validate_schedule_inputs,
+)
+
 WEEKDAY_MAP = {
     "mon": 0,
     "tue": 1,
@@ -40,16 +45,10 @@ def load_yaml(path: str | Path) -> Any:
 
 def load_project_data(data_dir: str | Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
     """プロジェクト原本 YAML ディレクトリから members, tasks, calendar を読み込む."""
-    p = Path(data_dir)
-    members_data = load_yaml(p / "members.yaml")
-    tasks_data = load_yaml(p / "tasks.yaml")
-    calendar_data = load_yaml(p / "calendar.yaml")
-
-    members = members_data.get("members", []) if isinstance(members_data, dict) else []
-    tasks = tasks_data.get("tasks", []) if isinstance(tasks_data, dict) else []
-    calendar = calendar_data.get("calendar", {}) if isinstance(calendar_data, dict) else {}
-
-    return members, tasks, calendar
+    result = validate_project_data(data_dir)
+    if not result.valid:
+        raise ValueError(f"プロジェクトデータの検証に失敗しました: {'; '.join(result.errors)}")
+    return result.members or [], result.tasks or [], result.calendar or {}
 
 
 def parse_holiday_dates(holidays_config: list[dict[str, Any]]) -> set[datetime.date]:
@@ -127,6 +126,9 @@ def solve_schedule(
     """
     start_date = to_date(project_start_date)
 
+    # 入力データの検証 (validator へ集約)
+    validate_schedule_inputs(members_data, tasks_data, calendar_data)
+
     # スケール係数: 0.1h = 1 単位 (8h * 1.0 = 80, 8h * 0.8 = 64)
     scale = 10
     base_hours_per_day = 8
@@ -142,45 +144,6 @@ def solve_schedule(
     # タスク情報
     tasks = {t["id"]: t for t in tasks_data}
     task_ids = list(tasks.keys())
-
-    # タスク工数の最小単位・0.1h刻み検証および未定義依存タスクの検証 (FR-10)
-    # タスク工数の最小単位・0.1h刻み検証、未定義依存タスクの検証 (FR-10)、および必須スキル充足メンバの検証 (FR-4)
-    for t_id, task in tasks.items():
-        est = task.get("estimate_hours", 0)
-        t_est = round(est * scale)
-        if t_est < 1 or abs(est - t_est / scale) > 1e-6:
-            raise ValueError(
-                f"タスク '{t_id}' の見積工数 ({est}h) は 0.1h 以上の 0.1h 刻み（小数点第1位まで）である必要があります。"
-            )
-        for dep_id in task.get("depends_on", []):
-            if dep_id not in tasks:
-                raise ValueError(
-                    f"タスク '{t_id}' の先行タスク '{dep_id}' が tasks に定義されていません。"
-                )
-        if "required_skills" in task:
-            raw_skills = task["required_skills"]
-            if (
-                raw_skills is None
-                or not isinstance(raw_skills, list)
-                or any(not isinstance(s, str) for s in raw_skills)
-            ):
-                raise ValueError(
-                    f"タスク '{t_id}' の required_skills は文字列のリストである必要があります（null は不可）。"
-                )
-            req_skills = set(raw_skills)
-        else:
-            req_skills = set()
-
-        if req_skills:
-            capable_members = [
-                m_id
-                for m_id, member in members.items()
-                if req_skills.issubset(set(member.get("skills") or []))
-            ]
-            if not capable_members:
-                raise ValueError(
-                    f"タスク '{t_id}' の必須スキル {sorted(req_skills)} をすべて保有するメンバが members に存在しません。"
-                )
 
     # 計画地平 (Horizon) の決定 (FR-11)
     workdays_cfg = calendar_data.get("workdays", ["mon", "tue", "wed", "thu", "fri"])
