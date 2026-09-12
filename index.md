@@ -23,7 +23,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 - [OKF 文書管理とタグインデックス](specs/002-okf-document-management.md) - Git 管理下の Taskweave 文書に OKF frontmatter を適用し、タグ集約インデックスと自動検査を提供する仕様
 - [計算エンジンの入出力および制約モデル仕様](specs/003-scheduling-engine.md) - Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
-- [実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）に基づく実績固定・残工数再計画アルゴリズム
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 - [Taskweave 仕様書](specs/README.md) - Taskweave の仕様書と仕様書ライフサイクルの案内
 - [\[仕様書タイトル\]](specs/templates/spec-template.md) - \[この仕様の目的と概要を1行で要約\]
 
@@ -33,6 +33,8 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [actuals](#tag-actuals)
 - [ai-agents](#tag-ai-agents)
 - [development](#tag-development)
+- [diagnostics](#tag-diagnostics)
+- [diff](#tag-diff)
 - [documentation](#tag-documentation)
 - [engine](#tag-engine)
 - [git](#tag-git)
@@ -57,11 +59,11 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 ### Tag: absences
 
-- [実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）に基づく実績固定・残工数再計画アルゴリズム
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 
 ### Tag: actuals
 
-- [実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）に基づく実績固定・残工数再計画アルゴリズム
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 
 ### Tag: ai-agents
 
@@ -71,6 +73,14 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 - [Taskweave Project Agent Guidelines](AGENTS.md) - Taskweave のエージェントと開発者が共有するプロジェクト運用指針
 - [人向け開発ルール](docs/development/rules.md) - Taskweave の人間開発者が仕様、実装、レビュー、Git 運用を進めるときの共通ルール
+
+### Tag: diagnostics
+
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
+
+### Tag: diff
+
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 
 ### Tag: documentation
 
@@ -96,7 +106,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 ### Tag: milestone-3
 
-- [実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）に基づく実績固定・残工数再計画アルゴリズム
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 
 ### Tag: milestones
 
@@ -124,7 +134,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 ### Tag: replanning
 
-- [実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）に基づく実績固定・残工数再計画アルゴリズム
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 
 ### Tag: review
 
@@ -142,7 +152,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: schema
 
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
-- [実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）に基づく実績固定・残工数再計画アルゴリズム
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 
 ### Tag: spec
 
@@ -159,6 +169,6 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: yaml
 
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
-- [実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）に基づく実績固定・残工数再計画アルゴリズム
+- [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 
 <!-- END GENERATED: okf-index -->

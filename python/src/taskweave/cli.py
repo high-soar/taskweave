@@ -2,11 +2,13 @@
 
 コマンド:
 - taskweave validate [dir]
+- taskweave replan [dir] --as-of <date> [--baseline <path>] [--format text|json]
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import re
 import sys
@@ -204,6 +206,33 @@ def main(argv: list[str] | None = None) -> int:
         help="原本 YAML ファイル（members.yaml, tasks.yaml, calendar.yaml）が置かれたディレクトリ (デフォルト: data)",
     )
 
+    # replan サブコマンド
+    replan_parser = subparsers.add_parser(
+        "replan",
+        help="起算日に基づく再計画およびベースライン差分を計算する",
+    )
+    replan_parser.add_argument(
+        "directory",
+        nargs="?",
+        default="data",
+        help="原本 YAML ファイルが置かれたディレクトリ (デフォルト: data)",
+    )
+    replan_parser.add_argument(
+        "--as-of",
+        required=True,
+        help="起算日 (YYYY-MM-DD 形式)",
+    )
+    replan_parser.add_argument(
+        "--baseline",
+        help="ベースライン計画 JSON ファイルのパス (省略時は実績なしで動的計算)",
+    )
+    replan_parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="出力フォーマット (text または json, デフォルト: text)",
+    )
+
     args = parser.parse_args(argv)
 
     if args.subcommand == "validate":
@@ -214,10 +243,47 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(f"YAML 原本データの検証に成功しました: {target_dir}\n")
         return 0
 
+    if args.subcommand == "replan":
+        has_errors = validate_directory(args.directory)
+        if has_errors:
+            return 1
+
+        baseline_data = None
+        if args.baseline:
+            baseline_path = Path(args.baseline)
+            try:
+                with open(baseline_path, encoding="utf-8") as f:
+                    baseline_data = json.load(f)
+            except Exception as err:
+                sys.stderr.write(f"ベースラインファイルの読み込みに失敗しました: {err}\n")
+                return 1
+
+        try:
+            from taskweave.diff import format_diff_summary
+            from taskweave.replan import replan
+
+            result = replan(
+                data_dir=args.directory,
+                as_of_date=args.as_of,
+                baseline_schedule=baseline_data,
+            )
+        except Exception as err:
+            sys.stderr.write(f"再計画の実行に失敗しました: {err}\n")
+            return 1
+
+        if args.format == "json":
+            sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+        else:
+            diff_res = result.get("diff", {})
+            summary_text = format_diff_summary(diff_res)
+            sys.stdout.write(summary_text + "\n")
+        return 0
+
     parser.print_help()
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
 

@@ -1136,3 +1136,21 @@ def _solve_replan(
 
     return result
 
+
+def replan(
+    data_dir: str | Path,
+    as_of_date: datetime.date | str,
+    baseline_schedule: dict[str, Any] | None = None,
+    project_start_date: datetime.date | str | None = None,
+) -> dict[str, Any]:
+    """replan 関数を taskweave.replan から遅延インポートして実行する."""
+    from taskweave.replan import replan as _replan
+
+    return _replan(
+        data_dir=data_dir,
+        as_of_date=as_of_date,
+        baseline_schedule=baseline_schedule,
+        project_start_date=project_start_date,
+    )
+
+
