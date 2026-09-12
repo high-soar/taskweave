@@ -1090,4 +1090,361 @@ def test_large_scale_60_tasks_feasible_and_deterministic():
         assert t1["daily_hours"] == t2["daily_hours"]
 
 
+# ==============================================================================
+# Milestone 3: 起算日 (As-of Date) 再計画テスト群 (Issue #26)
+# ==============================================================================
+
+
+def test_replan_scenario_1_as_of_fixed_actuals():
+    """AC-1: 起算日より前の実績ログが出力スケジュールに固定・反映されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["frontend"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    project_start = datetime.date(2026, 9, 1)  # 2026-09-01 (火)
+    as_of_date = datetime.date(2026, 9, 3)     # 2026-09-03 (木)
+
+    tasks = [
+        {"id": "task-api", "title": "API", "estimate_hours": 16.0, "required_skills": ["backend"]},
+        {"id": "task-ui", "title": "UI", "estimate_hours": 8.0, "required_skills": ["frontend"], "depends_on": ["task-api"]},
+    ]
+
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-01", "member_id": "alice", "task_id": "task-api", "hours": 8.0},
+            {"date": "2026-09-02", "member_id": "alice", "task_id": "task-api", "hours": 8.0},
+        ],
+    }
+
+    result = solve_schedule(
+        members,
+        tasks,
+        calendar,
+        project_start,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+
+    assert result["status"] in ("OPTIMAL", "FEASIBLE")
+    assert result["as_of_date"] == "2026-09-03"
+
+    # task-api は実績で16h消化済み (completed)
+    task_api = result["tasks"]["task-api"]
+    assert task_api["assigned_to"] == "alice"
+    assert task_api["start_date"] == "2026-09-01"
+    assert task_api["end_date"] == "2026-09-02"
+    assert task_api["daily_hours"] == {"2026-09-01": 8.0, "2026-09-02": 8.0}
+    assert task_api["remaining_hours"] == 0.0
+    assert task_api["total_logged_hours"] == 16.0
+    assert task_api["status"] == "completed"
+
+    # Alice の日別実績にも 9/1, 9/2 が反映されていること
+    assert result["member_daily_work"]["alice"].get("2026-09-01") == 8.0
+    assert result["member_daily_work"]["alice"].get("2026-09-02") == 8.0
+
+    # task-ui は未着手で as_of_date (9/3) 以降に計画されること
+    task_ui = result["tasks"]["task-ui"]
+    assert task_ui["assigned_to"] == "bob"
+    assert task_ui["start_date"] >= "2026-09-03"
+    assert task_ui["start_date"] == "2026-09-03"
+    assert task_ui["end_date"] == "2026-09-03"
+    assert task_ui["daily_hours"] == {"2026-09-03": 8.0}
+    assert task_ui["status"] == "not_started"
+
+
+def test_replan_scenario_2_completed_tasks_excluded():
+    """AC-2: 完了済みタスク（status: completed または remaining_hours == 0）は未来探索から除外され、実績期間のみで出力されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    project_start = datetime.date(2026, 9, 1)  # 火
+    as_of_date = datetime.date(2026, 9, 3)     # 木
+
+    tasks = [
+        {"id": "task-setup", "title": "Setup", "estimate_hours": 8.0, "required_skills": ["backend"]},
+        {"id": "task-impl", "title": "Impl", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": ["task-setup"]},
+    ]
+
+    # task_progress で明示的に status: completed, remaining_hours: 0.0 (4h 実績のみで完了)
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-01", "member_id": "alice", "task_id": "task-setup", "hours": 4.0},
+        ],
+        "task_progress": [
+            {"task_id": "task-setup", "remaining_hours": 0.0, "status": "completed"},
+        ],
+    }
+
+    result = solve_schedule(
+        members,
+        tasks,
+        calendar,
+        project_start,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+
+    assert result["status"] in ("OPTIMAL", "FEASIBLE")
+    setup = result["tasks"]["task-setup"]
+    assert setup["status"] == "completed"
+    assert setup["remaining_hours"] == 0.0
+    assert setup["total_logged_hours"] == 4.0
+    assert setup["start_date"] == "2026-09-01"
+    assert setup["end_date"] == "2026-09-01"
+    assert setup["daily_hours"] == {"2026-09-01": 4.0}
+
+    # task-impl は 9/3 に計画される (setup は未来のキャパシティを一切消費しない)
+    impl = result["tasks"]["task-impl"]
+    assert impl["start_date"] == "2026-09-03"
+    assert impl["end_date"] == "2026-09-03"
+    assert impl["daily_hours"] == {"2026-09-03": 8.0}
+
+
+def test_replan_scenario_3_in_progress_member_pinned():
+    """AC-3: 着手済み未完了タスクは着手済みの担当メンバが維持され（ピン留め）、残工数が起算日以降に計画されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    project_start = datetime.date(2026, 9, 1)  # 火
+    as_of_date = datetime.date(2026, 9, 3)     # 木
+
+    # task-api は 24h。Alice が 9/1, 9/2 に 8h ずつ (計16h) 実施。残 8h。
+    tasks = [
+        {"id": "task-api", "title": "API", "estimate_hours": 24.0, "required_skills": ["backend"]},
+    ]
+
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-01", "member_id": "alice", "task_id": "task-api", "hours": 8.0},
+            {"date": "2026-09-02", "member_id": "alice", "task_id": "task-api", "hours": 8.0},
+        ],
+    }
+
+    result = solve_schedule(
+        members,
+        tasks,
+        calendar,
+        project_start,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+
+    assert result["status"] in ("OPTIMAL", "FEASIBLE")
+    api = result["tasks"]["task-api"]
+
+    # Bob ではなく Alice にピン留めされていること
+    assert api["assigned_to"] == "alice"
+    assert api["status"] == "in_progress"
+    assert api["total_logged_hours"] == 16.0
+    assert api["remaining_hours"] == 8.0
+    assert api["start_date"] == "2026-09-01"
+    assert api["end_date"] == "2026-09-03"
+
+    # 過去実績 16h + 未来計画 8h が daily_hours に統合されていること
+    assert api["daily_hours"] == {
+        "2026-09-01": 8.0,
+        "2026-09-02": 8.0,
+        "2026-09-03": 8.0,
+    }
+    assert result["member_daily_work"]["alice"]["2026-09-03"] == 8.0
+    assert "task-api" not in result["member_daily_work"].get("bob", {})
+
+
+def test_replan_scenario_4_unstarted_tasks_optimal_allocation():
+    """AC-4: 未着手タスクは先行タスクの新予定終了日・スキル制約・稼働上限を満たして起算日以降に最適割り当てされること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["frontend", "backend"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    project_start = datetime.date(2026, 9, 1)  # 火
+    as_of_date = datetime.date(2026, 9, 3)     # 木
+
+    # task-api: Alice 着手済み (残8h、9/3に完了予定)
+    # task-ui: task-api に依存 (8h, frontend) -> 9/4 に Bob が担当すべき
+    # task-batch: 独立未着手タスク (8h, backend) -> 9/3 に Bob が担当可能
+    tasks = [
+        {"id": "task-api", "title": "API", "estimate_hours": 16.0, "required_skills": ["backend"]},
+        {"id": "task-ui", "title": "UI", "estimate_hours": 8.0, "required_skills": ["frontend"], "depends_on": ["task-api"]},
+        {"id": "task-batch", "title": "Batch", "estimate_hours": 8.0, "required_skills": ["backend"]},
+    ]
+
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-01", "member_id": "alice", "task_id": "task-api", "hours": 8.0},
+        ],
+    }
+
+    result = solve_schedule(
+        members,
+        tasks,
+        calendar,
+        project_start,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+
+    assert result["status"] in ("OPTIMAL", "FEASIBLE")
+
+    # task-api: Alice 残8hが 9/3 に計画され、9/3 終了
+    task_api = result["tasks"]["task-api"]
+    assert task_api["assigned_to"] == "alice"
+    assert task_api["end_date"] == "2026-09-03"
+
+    # task-batch: 独立タスクなので 9/3 に Bob に最適割り当て
+    task_batch = result["tasks"]["task-batch"]
+    assert task_batch["assigned_to"] == "bob"
+    assert task_batch["start_date"] == "2026-09-03"
+    assert task_batch["end_date"] == "2026-09-03"
+
+    # task-ui: task-api (9/3終了) の後続のため 9/4 に開始
+    task_ui = result["tasks"]["task-ui"]
+    assert task_ui["assigned_to"] == "bob"
+    assert task_ui["start_date"] == "2026-09-04"
+    assert task_ui["end_date"] == "2026-09-04"
+
+
+def test_replan_scenario_5_backward_compatibility_without_as_of(basic_data):
+    """AC-5: as_of_date を指定しない場合、従来のプロジェクト開始日からの全量計画（M2 互換）として動作すること."""
+    members, tasks, calendar = basic_data
+    start_date = datetime.date(2026, 9, 1)
+
+    res_without_as_of = solve_schedule(members, tasks, calendar, start_date)
+    res_none_as_of = solve_schedule(members, tasks, calendar, start_date, as_of_date=None, actuals_data=None)
+
+    assert res_without_as_of["status"] == res_none_as_of["status"]
+    assert res_without_as_of["makespan_workdays"] == res_none_as_of["makespan_workdays"]
+    assert res_without_as_of["as_of_date"] is None
+    assert res_none_as_of["as_of_date"] is None
+
+    for t_id in res_without_as_of["tasks"]:
+        assert res_without_as_of["tasks"][t_id] == res_none_as_of["tasks"][t_id]
+
+
+def test_replan_scenario_6_all_tasks_completed_fast_return():
+    """FR-15: 全タスク完了時にソルバーを起動せず実績データのみから即座に結果を返却すること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    project_start = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 4)
+
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"]},
+    ]
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-01", "member_id": "alice", "task_id": "t1", "hours": 8.0},
+        ],
+        "task_progress": [
+            {"task_id": "t1", "remaining_hours": 0.0, "status": "completed"},
+        ],
+    }
+
+    result = solve_schedule(members, tasks, calendar, project_start, as_of_date=as_of_date, actuals_data=actuals)
+    assert result["status"] == "OPTIMAL"
+    assert result["tasks"]["t1"]["status"] == "completed"
+    assert result["tasks"]["t1"]["daily_hours"] == {"2026-09-01": 8.0}
+    assert result["makespan_workdays"] == 1
+
+
+def test_replan_scenario_7_deterministic_reproducibility():
+    """AC-6: 決定論的再現性（シード固定、単一ワーカー）が保たれ、複数回実行で解が完全一致すること."""
+    members = [
+        {"id": "m1", "name": "M1", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "m2", "name": "M2", "max_capacity": 1.0, "skills": ["backend", "frontend"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    project_start = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 4)
+
+    tasks = [
+        {"id": "t1", "title": "T1", "estimate_hours": 16.0, "required_skills": ["backend"]},
+        {"id": "t2", "title": "T2", "estimate_hours": 12.0, "required_skills": ["backend"]},
+        {"id": "t3", "title": "T3", "estimate_hours": 8.0, "required_skills": ["frontend"], "depends_on": ["t1"]},
+    ]
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-01", "member_id": "m1", "task_id": "t1", "hours": 8.0},
+            {"date": "2026-09-02", "member_id": "m1", "task_id": "t1", "hours": 4.0},
+            {"date": "2026-09-03", "member_id": "m2", "task_id": "t2", "hours": 8.0},
+        ],
+    }
+
+    res1 = solve_schedule(members, tasks, calendar, project_start, as_of_date=as_of_date, actuals_data=actuals)
+    res2 = solve_schedule(members, tasks, calendar, project_start, as_of_date=as_of_date, actuals_data=actuals)
+
+    assert res1["status"] == res2["status"]
+    assert res1["makespan_workdays"] == res2["makespan_workdays"]
+    assert res1["tasks"] == res2["tasks"]
+    assert res1["member_daily_work"] == res2["member_daily_work"]
+
+
+def test_replan_scenario_8_explicit_remaining_hours_scope_change():
+    """タスク進捗で remaining_hours が再見積もりされた場合、その残工数で再計画されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    project_start = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 3)
+
+    # 当初8h見積もり、8h実績消化したが、作業が難航して残り8h必要と再見積もり (計16h)
+    tasks = [
+        {"id": "t1", "title": "T1", "estimate_hours": 8.0, "required_skills": ["backend"]},
+    ]
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-01", "member_id": "alice", "task_id": "t1", "hours": 8.0},
+        ],
+        "task_progress": [
+            {"task_id": "t1", "remaining_hours": 8.0, "status": "in_progress"},
+        ],
+    }
+
+    result = solve_schedule(members, tasks, calendar, project_start, as_of_date=as_of_date, actuals_data=actuals)
+    t1 = result["tasks"]["t1"]
+    assert t1["status"] == "in_progress"
+    assert t1["total_logged_hours"] == 8.0
+    assert t1["remaining_hours"] == 8.0
+    assert t1["daily_hours"] == {"2026-09-01": 8.0, "2026-09-03": 8.0}
+    assert t1["end_date"] == "2026-09-03"
+
+
+def test_replan_scenario_9_as_of_validation_error():
+    """as_of_date が project_start_date より過去の場合に ValueError が発生すること."""
+    members = [{"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]}]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    tasks = [{"id": "t1", "title": "T1", "estimate_hours": 8.0, "required_skills": ["backend"]}]
+
+    with pytest.raises(ValueError, match="as_of_date は project_start_date 以降"):
+        solve_schedule(
+            members,
+            tasks,
+            calendar,
+            project_start_date="2026-09-10",
+            as_of_date="2026-09-01",
+        )
+
+
+def test_load_project_data_include_actuals(repo_root: Path):
+    """load_project_data が include_actuals=True で actuals も正しく読み込めること."""
+    data_dir = repo_root / "examples" / "basic"
+    members, tasks, calendar = load_project_data(data_dir)
+    assert len(members) >= 2
+
+    # basic には actuals.yaml がないため None が返る
+    members2, tasks2, calendar2, actuals = load_project_data(data_dir, include_actuals=True)
+    assert members == members2
+    assert tasks == tasks2
+    assert calendar == calendar2
+    assert actuals is None
+
+
+
 
