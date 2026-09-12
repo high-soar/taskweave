@@ -4,14 +4,14 @@ title: Taskweave
 description: コーディングエージェント向けのスケジュール調整ツール
 tags: [project, scheduling, documentation]
 status: draft
-generated: { by: copilot/chat, at: 2026-09-10T12:09:08Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T01:20:00Z }
 ---
 
 # Taskweave
 
 コーディングエージェント向けのスケジュール調整ツールです。
 
-現在は、原本 YAML スキーマと検証ツールの整備が完了し、Python / OR-Tools による計算エンジン MVP の実装段階です。
+原本 YAML スキーマと検証ツールの整備（Milestone 1）、および Python / OR-Tools による計算エンジン MVP（Milestone 2）が完了し、現在は実績反映と再計画ワークフロー（Milestone 3）の準備段階です。
 
 ## 目的
 

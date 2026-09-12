@@ -3,9 +3,9 @@ type: spec
 title: 計算エンジンの入出力および制約モデル仕様
 description: Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
 tags: [scheduling, engine, or-tools, milestone-2]
-status: accepted
+status: implemented
 issues: [12, 13, 14, 15, 16]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-11T14:35:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T01:20:00Z }
 verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
 ---
 
