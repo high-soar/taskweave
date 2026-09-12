@@ -61,6 +61,7 @@ def compute_schedule_diff(
     for t_id in all_task_ids:
         b_t = b_tasks.get(t_id, {})
         r_t = r_tasks.get(t_id, {})
+        t_meta = tasks_meta.get(t_id, {})
 
         b_start_str = b_t.get("start_date")
         r_start_str = r_t.get("start_date")
@@ -78,8 +79,8 @@ def compute_schedule_diff(
         r_assignee = r_t.get("assigned_to")
         assignee_changed = (b_assignee != r_assignee) if (b_assignee and r_assignee) else False
 
-        b_delay = b_t.get("delay_days", 0)
-        r_delay = r_t.get("delay_days", 0)
+        b_delay = b_t.get("delay_days") or 0
+        r_delay = r_t.get("delay_days") or 0
         delay_increase = max(0, r_delay - b_delay)
 
         # 遅延判定
@@ -92,10 +93,9 @@ def compute_schedule_diff(
             delayed_task_ids.append(t_id)
 
             # 1. 工数増大 (workload_increase) の判定
-            t_meta = tasks_meta.get(t_id, {})
-            estimate = float(t_meta.get("estimate_hours", r_t.get("estimate_hours", 0.0)))
-            logged = float(r_t.get("total_logged_hours", 0.0))
-            remaining = float(r_t.get("remaining_hours", r_t.get("estimate_hours", 0.0)))
+            estimate = float(t_meta.get("estimate_hours") or r_t.get("estimate_hours") or 0.0)
+            logged = float(r_t.get("total_logged_hours") or 0.0)
+            remaining = float(r_t.get("remaining_hours") or r_t.get("estimate_hours") or 0.0)
             total_work = round(logged + remaining, 1)
             workload_excess = round(total_work - estimate, 1)
 
@@ -144,7 +144,7 @@ def compute_schedule_diff(
                 primary_reason = reasons[0]
 
         # 納期超過に対する推奨納期緩和 (Recommendations)
-        deadline = r_t.get("deadline")
+        deadline = r_t.get("deadline") or t_meta.get("deadline")
         if deadline and r_end_str:
             r_end_date = to_date(r_end_str)
             dead_date = to_date(deadline)
@@ -215,9 +215,9 @@ def format_diff_summary(diff_result: dict[str, Any]) -> str:
     ]
 
     makespan = diff_result.get("makespan", {})
-    b_ms = makespan.get("baseline_workdays", 0)
-    r_ms = makespan.get("replanned_workdays", 0)
-    slip_ms = makespan.get("slip_workdays", 0)
+    b_ms = makespan.get("baseline_workdays") or 0
+    r_ms = makespan.get("replanned_workdays") or 0
+    slip_ms = makespan.get("slip_workdays") or 0
     sign = f"+{slip_ms}" if slip_ms >= 0 else str(slip_ms)
     lines.append(f"Makespan: {b_ms} workdays -> {r_ms} workdays ({sign} days slip)")
     lines.append("")
@@ -240,11 +240,11 @@ def format_diff_summary(diff_result: dict[str, Any]) -> str:
             assignee = r_info.get("assigned_to", "unassigned")
             lines.append(f"[!] {t_id} (担当: {assignee})")
 
-            s_slip = diff.get("start_date_slip_days", 0)
+            s_slip = diff.get("start_date_slip_days") or 0
             s_sign = f"+{s_slip}" if s_slip >= 0 else str(s_slip)
             lines.append(f"    Start: {b_info.get('start_date')} -> {r_info.get('start_date')} ({s_sign}d)")
 
-            e_slip = diff.get("end_date_slip_days", 0)
+            e_slip = diff.get("end_date_slip_days") or 0
             e_sign = f"+{e_slip}" if e_slip >= 0 else str(e_slip)
             lines.append(f"    End:   {b_info.get('end_date')} -> {r_info.get('end_date')} ({e_sign}d slip)")
 
