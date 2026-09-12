@@ -1476,5 +1476,224 @@ def test_replan_scenario_10_as_of_date_boundary_work_log_not_in_past():
     assert result["member_daily_work"]["alice"]["2026-09-03"] == 8.0
 
 
+# ---------------------------------------------------------------------------
+# Issue #27: 個別不在 (Absences) を考慮した未来スケジュール再計画テスト群
+# ---------------------------------------------------------------------------
+
+
+def test_absences_ac1_zero_capacity_on_absent_day():
+    """AC-1: calendar.yaml の absences に指定されたメンバの該当日は、タスク作業工数が一切割り当てられないこと（日別キャパシティ 0）."""
+    members = [{"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]}]
+    tasks = [{"id": "t1", "title": "T1", "estimate_hours": 16.0, "required_skills": ["backend"]}]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [{"member_id": "alice", "date": "2026-09-02", "name": "私用休暇"}],
+    }
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+
+    t1 = result["tasks"]["t1"]
+    # 2026-09-02 は不在日なので割り当てられないこと
+    assert "2026-09-02" not in t1["daily_hours"]
+    assert "2026-09-02" not in result["member_daily_work"].get("alice", {})
+
+    # 9/1 (火) 8h, 9/3 (木) 8h に割り当てられること
+    assert t1["daily_hours"].get("2026-09-01") == 8.0
+    assert t1["daily_hours"].get("2026-09-03") == 8.0
+    assert t1["start_date"] == "2026-09-01"
+    assert t1["end_date"] == "2026-09-03"
+
+
+def test_absences_ac2_unstarted_task_reassigned_to_capable_member():
+    """AC-2: 未着手タスクにおいて、同じ必須スキルを持つ別メンバが存在する場合、遅延を最小化するよう別メンバへの振替割当が自動検討されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    # 納期が 2026-09-01 (初日) の未着手タスク
+    tasks = [
+        {"id": "t1", "title": "Urgent T1", "estimate_hours": 8.0, "required_skills": ["backend"], "deadline": "2026-09-01"},
+    ]
+    # Alice は初日 2026-09-01 が不在。Bob は稼働可能
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [{"member_id": "alice", "date": "2026-09-01", "name": "体調不良"}],
+    }
+    start_date = datetime.date(2026, 9, 1)
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+
+    t1 = result["tasks"]["t1"]
+    # Alice が担当すると初日に完了できず遅延するため、Bob に自動割当されること
+    assert t1["assigned_to"] == "bob"
+    assert t1["start_date"] == "2026-09-01"
+    assert t1["end_date"] == "2026-09-01"
+    assert t1["daily_hours"] == {"2026-09-01": 8.0}
+    assert t1["delay_days"] == 0
+    assert result["diagnostics"]["is_deadline_violated"] is False
+
+
+def test_absences_ac3_no_alternative_member_skips_absent_day():
+    """AC-3 (ケース A): 代替メンバが不在の場合、不在日をスキップして翌稼働日以降に作業が継続されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["ml"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["frontend"]},
+    ]
+    tasks = [
+        {"id": "t-ml", "title": "ML Model", "estimate_hours": 16.0, "required_skills": ["ml"]},
+    ]
+    # Alice のみ ML スキル保有。Alice は 2026-09-02 (水) が不在
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [{"member_id": "alice", "date": "2026-09-02", "name": "私用"}],
+    }
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+
+    t_ml = result["tasks"]["t-ml"]
+    assert t_ml["assigned_to"] == "alice"
+    assert "2026-09-02" not in t_ml["daily_hours"]
+    assert t_ml["daily_hours"] == {"2026-09-01": 8.0, "2026-09-03": 8.0}
+    assert t_ml["start_date"] == "2026-09-01"
+    assert t_ml["end_date"] == "2026-09-03"
+
+
+def test_absences_ac3_in_progress_task_skips_absent_day():
+    """AC-3 (ケース B): 着手済みタスクの場合、別メンバへ振り替えず不在日をスキップして翌稼働日以降に作業が継続されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "T1", "estimate_hours": 16.0, "required_skills": ["backend"]},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [{"member_id": "alice", "date": "2026-09-02", "name": "有給休暇"}],
+    }
+    project_start = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 2)  # 起算日: 水曜日 (Alice 不在日)
+
+    # 9/1 に Alice が 8.0h 作業済み (残 8.0h)
+    actuals = {
+        "work_logs": [{"date": "2026-09-01", "member_id": "alice", "task_id": "t1", "hours": 8.0}],
+    }
+
+    result = solve_schedule(members, tasks, calendar, project_start, as_of_date=as_of_date, actuals_data=actuals)
+    assert result["status"] == "OPTIMAL"
+
+    t1 = result["tasks"]["t1"]
+    # 着手済みのため Bob への再割り当ては行われず、Alice に固定される
+    assert t1["assigned_to"] == "alice"
+    assert t1["status"] == "in_progress"
+    assert t1["total_logged_hours"] == 8.0
+    assert t1["remaining_hours"] == 8.0
+
+    # 9/2 (不在日) はスキップされ、9/3 (木) に残工数 8.0h が割り当てられる
+    assert "2026-09-02" not in t1["daily_hours"]
+    assert t1["daily_hours"]["2026-09-01"] == 8.0
+    assert t1["daily_hours"]["2026-09-03"] == 8.0
+    assert t1["end_date"] == "2026-09-03"
+
+
+def test_absences_ac4_compound_weekend_holiday_absence():
+    """AC-4: チーム祝日、週末、および個別不在が複合した場合でも、各メンバの稼働可能日が正しく判定されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["frontend"]},
+    ]
+    tasks = [
+        {"id": "t-be", "title": "BE", "estimate_hours": 16.0, "required_skills": ["backend"]},
+        {"id": "t-fe", "title": "FE", "estimate_hours": 16.0, "required_skills": ["frontend"]},
+    ]
+    # 2026-09-18 (金): 稼働日
+    # 2026-09-19 (土), 2026-09-20 (日): 週末
+    # 2026-09-21 (月): 祝日 (敬老の日)
+    # 2026-09-22 (火): Alice 個別不在
+    # 2026-09-23 (水): 稼働日 (秋分の日だが祝日未登録なら平日扱い)
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [{"date": "2026-09-21", "name": "敬老の日"}],
+        "absences": [{"member_id": "alice", "date": "2026-09-22", "name": "個別休暇"}],
+    }
+    start_date = datetime.date(2026, 9, 18)  # 金曜日
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+
+    t_be = result["tasks"]["t-be"]
+    t_fe = result["tasks"]["t-fe"]
+
+    # Bob (FE): 9/18 (金) 8h, 9/22 (火) 8h に作業 (9/19, 9/20 は週末、9/21 は祝日で非稼働)
+    assert t_fe["assigned_to"] == "bob"
+    assert t_fe["daily_hours"] == {"2026-09-18": 8.0, "2026-09-22": 8.0}
+    assert t_fe["end_date"] == "2026-09-22"
+
+    # Alice (BE): 9/18 (金) 8h, 9/22 は個別不在のためスキップ、9/23 (水) 8h に作業
+    assert t_be["assigned_to"] == "alice"
+    assert "2026-09-22" not in t_be["daily_hours"]
+    assert t_be["daily_hours"] == {"2026-09-18": 8.0, "2026-09-23": 8.0}
+    assert t_be["end_date"] == "2026-09-23"
+
+
+def test_absences_ac5_nested_calendar_and_multi_task_replan():
+    """AC-5: ネストした calendar 構造および依存関係付き複数タスクでの再計画検証."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "T1", "estimate_hours": 16.0, "required_skills": ["backend"]},
+        {"id": "t2", "title": "T2", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": ["t1"]},
+    ]
+    # ネストした {"calendar": {"workdays": ..., "absences": ...}} の形式
+    calendar = {
+        "calendar": {
+            "workdays": ["mon", "tue", "wed", "thu", "fri"],
+            "holidays": [],
+            "absences": [
+                {"member_id": "alice", "date": "2026-09-02", "name": "有給"},
+                {"member_id": "bob", "date": "2026-09-03", "name": "研修"},
+            ],
+        }
+    }
+    project_start = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 2)
+
+    actuals = {
+        "work_logs": [{"date": "2026-09-01", "member_id": "alice", "task_id": "t1", "hours": 8.0}],
+    }
+
+    result = solve_schedule(members, tasks, calendar, project_start, as_of_date=as_of_date, actuals_data=actuals)
+    assert result["status"] == "OPTIMAL"
+
+    t1 = result["tasks"]["t1"]
+    t2 = result["tasks"]["t2"]
+
+    # t1 は着手済みのため Alice にピン留め。9/2 は Alice 不在のためスキップし 9/3 に完了
+    assert t1["assigned_to"] == "alice"
+    assert "2026-09-02" not in t1["daily_hours"]
+    assert t1["daily_hours"]["2026-09-01"] == 8.0
+    assert t1["daily_hours"]["2026-09-03"] == 8.0
+    assert t1["end_date"] == "2026-09-03"
+
+    # t2 は t1 (9/3 完了) に依存するため 9/4 以降に開始
+    assert t2["start_date"] >= "2026-09-04"
+    # Alice の 9/2 と Bob の 9/3 には作業が割り当てられていないこと
+    assert "2026-09-02" not in result["member_daily_work"].get("alice", {})
+    assert "2026-09-03" not in result["member_daily_work"].get("bob", {})
+
+
+
+
 
 
