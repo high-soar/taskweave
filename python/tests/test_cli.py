@@ -216,3 +216,106 @@ task_progress:
         assert "1タスク1担当者" in result.stderr or "複数の担当メンバ" in result.stderr
 
 
+class TestReplanCLI:
+    """taskweave replan サブコマンドのテスト (AC-4)."""
+
+    def test_replan_help(self):
+        result = run_cli("replan", "--help")
+        assert result.returncode == 0
+        assert "--as-of" in result.stdout
+        assert "--format" in result.stdout
+
+    def test_replan_missing_as_of_fails(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("replan", str(basic_project_files))
+        assert result.returncode != 0
+
+    def test_replan_text_output_basic(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (basic_project_files / "actuals.yaml").write_text(
+            """work_logs:
+  - date: '2026-09-08'
+    member_id: alice
+    task_id: task-api
+    hours: 8.0
+task_progress:
+  - task_id: task-api
+    remaining_hours: 8.0
+    status: in_progress
+""",
+            encoding="utf-8",
+        )
+        result = run_cli("replan", str(basic_project_files), "--as-of", "2026-09-09")
+        assert result.returncode == 0
+        assert "Taskweave Replanning & Diff Report" in result.stdout
+        assert "Makespan:" in result.stdout
+
+    def test_replan_json_output_basic(self, basic_project_files):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (basic_project_files / "actuals.yaml").write_text(
+            """work_logs:
+  - date: '2026-09-08'
+    member_id: alice
+    task_id: task-api
+    hours: 8.0
+task_progress:
+  - task_id: task-api
+    remaining_hours: 8.0
+    status: in_progress
+""",
+            encoding="utf-8",
+        )
+        result = run_cli("replan", str(basic_project_files), "--as-of", "2026-09-09", "--format", "json")
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert "baseline" in data
+        assert "replanned" in data
+        assert "diff" in data
+        assert "makespan" in data["diff"]
+
+    def test_replan_with_explicit_baseline(self, basic_project_files, tmp_path):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        baseline_file = tmp_path / "baseline.json"
+        baseline_file.write_text(
+            json.dumps({
+                "status": "OPTIMAL",
+                "makespan_workdays": 10,
+                "tasks": {
+                    "task-setup": {
+                        "assigned_to": "alice",
+                        "start_date": "2026-09-08",
+                        "end_date": "2026-09-08",
+                        "workdays_count": 1,
+                        "estimate_hours": 8.0,
+                        "delay_days": 0,
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        result = run_cli(
+            "replan",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--baseline",
+            str(baseline_file),
+            "--format",
+            "json",
+        )
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["diff"]["makespan"]["baseline_workdays"] == 10
+
+    def test_replan_validation_error_fails(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text("invalid: yaml: content: [", encoding="utf-8")
+        result = run_cli("replan", str(basic_project_files), "--as-of", "2026-09-09")
+        assert result.returncode == 1
+
+
+

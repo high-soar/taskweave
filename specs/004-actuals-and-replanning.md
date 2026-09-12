@@ -1,15 +1,16 @@
 ---
 type: spec
-title: 実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様
-description: actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）に基づく実績固定・残工数再計画アルゴリズム
-tags: [schema, yaml, actuals, absences, replanning, milestone-3]
+title: 実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様
+description: actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
+tags:
+  [schema, yaml, actuals, absences, replanning, diff, diagnostics, milestone-3]
 status: implemented
-issues: [25, 26, 27]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T03:13:00Z }
-verified: { by: human:high-soar, at: 2026-09-12T04:22:36Z }
+issues: [25, 26, 27, 28]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T15:40:16Z }
+verified: { by: human:high-soar, at: 2026-09-12T15:40:16Z }
 ---
 
-# 実績工数・個別不在の原本スキーマ検証および起算日再計画計算仕様 (004-actuals-and-replanning)
+# 実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様 (004-actuals-and-replanning)
 
 ## 1. 概要とユーザーストーリー
 
@@ -26,9 +27,13 @@ verified: { by: human:high-soar, at: 2026-09-12T04:22:36Z }
     - **As a**: チームメンバおよびプロジェクト計画担当者
     - **I want**: 突発的な欠勤や予定休暇（`calendar.absences`）が発生した際、対象メンバの該当日のキャパシティを 0 として未来スケジュールを再計画したい
     - **So that**: 不在メンバへの作業割り当てを確実に回避し、必要に応じて代替メンバへの自動再割り当てや工期延伸を反映した現実的な計画を得るため
+  - **ストーリー 4 (Issue #28 ベースライン差分と遅延原因診断)**:
+    - **As a**: プロジェクト管理者およびコーディングエージェント
+    - **I want**: 初回計画（ベースライン）と再計画後のスケジュールを比較し、タスク日程のスリップ（Diff）と遅延原因（工数増大、欠勤、先行遅延）を自動診断したい
+    - **So that**: スケジュール遅延の理由をチームに明確に説明し、クリティカルパスのボトルネックに対する対策（納期見直しやスコープ調整）を講じるため
 - **背景と目的**:
   Milestone 2 では初期計画の自動算出エンジンを確立しました。続く Milestone 3 では、進行中プロジェクトにおいて日々発生する作業実績工数や突発的な休暇・欠勤を考慮した再計画（Replanning）を実現します。
-  本仕様では、原本ファイル（`actuals.yaml`, `calendar.yaml`）の検証規則（Issue #25）に加え、起算日（As-of Date）を用いた過去実績の固定と未完了タスクの未来スケジュール最適化エンジン（Issue #26）、ならびに個別不在を考慮した日別可変キャパシティによる割当制御（Issue #27）のアルゴリズムと制約を定義します。
+  本仕様では、原本ファイル（`actuals.yaml`, `calendar.yaml`）の検証規則（Issue #25）に加え、起算日（As-of Date）を用いた過去実績の固定と未完了タスクの未来スケジュール最適化エンジン（Issue #26）、個別不在を考慮した日別可変キャパシティによる割当制御（Issue #27）、ならびにベースライン計画との差分（Diff）算出と遅延原因自動診断および推奨納期緩和の出力（Issue #28）のアルゴリズムと制約を定義します。
 
 ---
 
@@ -88,6 +93,21 @@ verified: { by: human:high-soar, at: 2026-09-12T04:22:36Z }
   - 代替メンバが不在の場合や着手済みタスク（担当メンバ固定）の場合、不在日を作業日としてスキップし、翌稼働日以降に作業が継続されること。
   - チーム祝日、週末、および個別不在が複合した場合でも、各メンバの稼働可能日が正しく判定されること。
   - `as_of_date` 指定の有無に関わらず、未来の計画探索空間において個別不在日に対するキャパシティ 0 制約を適用すること。
+- **FR-17 (ベースライン計画との差分算出)**:
+  - 初回計画（原本 YAML から実績なしで動的計算したベースライン、または指定されたベースライン計画結果）と再計画後スケジュールの差分を出力できること。
+  - 全体工期 Makespan の変動差分（`makespan_workdays` のスリップ日数）を出力すること。
+  - タスクごとの開始日差（スリップ日数）、終了日差（スリップ日数）、稼働日数差（工期増減）、担当者変更有無、納期超過日数増減（`delay_increase_days`）を出力すること。
+- **FR-18 (再計画遅延原因の自動診断と主原因特定)**:
+  - 再計画で終了日が遅延（スリップ）したタスク、または納期超過日数が増大したタスクについて、以下の要因を特定・診断できること:
+    1. **工数増大（超過工数: `workload_increase`）**: 実績工数と残工数の合計が見積工数を超過している（`total_logged_hours + remaining_hours > estimate_hours`）。
+    2. **メンバ欠勤（`member_absence`）**: 担当メンバの稼働予定期間に `calendar.absences` の不在日が存在し、作業が中断・延伸された。
+    3. **先行タスク遅延の波及（`dependency_delay`）**: 依存先行タスクの終了遅延により開始日が後ろ倒しになった。
+  - 遅延タスクごとに、該当するすべての要因リスト（`reasons`）、主原因（`primary_reason`）、および人間可読な診断説明文（`details`）を出力すること。
+- **FR-19 (納期超過タスクに対する推奨納期緩和日の出力)**:
+  - 再計画後も納期（`deadline`）を超過するタスクに対し、実行可能終了日に基づく推奨納期緩和日（Recommendations）および超過日数を提示できること。
+- **FR-20 (Python API および CLI サブコマンド)**:
+  - Python API として `taskweave.diff.compute_schedule_diff` および `taskweave.engine.replan`（`taskweave.replan`）を提供すること。
+  - CLI サブコマンド `taskweave replan [directory] --as-of <YYYY-MM-DD> [--baseline <path>] [--format text|json]` を提供し、人間向けテキストサマリおよびプログラム連携用 JSON 構造化データを出力できること。
 
 ### 2.2 非機能要件 (NFR: Non-Functional Requirements)
 
@@ -184,6 +204,71 @@ calendar:
 | `absences[].member_id` | string         | 必須 | -          | 不在となるメンバの ID。`members.yaml` に定義が存在すること。                       |
 | `absences[].date`      | string (date)  | 必須 | -          | 不在日。実在する `YYYY-MM-DD` 形式の日付文字列。同一メンバ・同一日付の重複は不可。 |
 | `absences[].name`      | string         | 任意 | `""`       | 不在の事由・名称。省略可能（指定する場合は非 null の文字列）。                     |
+
+---
+
+### 3.3 差分（Diff）および遅延診断データ構造
+
+`taskweave.diff.compute_schedule_diff` および `taskweave replan --format json` で出力される差分・診断の構造です。
+
+```json
+{
+  "makespan": {
+    "baseline_workdays": 10,
+    "replanned_workdays": 13,
+    "slip_workdays": 3
+  },
+  "tasks": {
+    "task-api": {
+      "task_id": "task-api",
+      "baseline": {
+        "start_date": "2026-09-08",
+        "end_date": "2026-09-11",
+        "assigned_to": "alice",
+        "workdays_count": 4,
+        "delay_days": 0
+      },
+      "replanned": {
+        "start_date": "2026-09-08",
+        "end_date": "2026-09-15",
+        "assigned_to": "alice",
+        "workdays_count": 5,
+        "status": "in_progress",
+        "delay_days": 2
+      },
+      "diff": {
+        "start_date_slip_days": 0,
+        "end_date_slip_days": 4,
+        "workdays_count_diff": 1,
+        "assignee_changed": false,
+        "delay_increase_days": 2
+      },
+      "diagnostics": {
+        "is_delayed": true,
+        "primary_reason": "workload_increase",
+        "reasons": ["workload_increase"],
+        "details": [
+          "見積工数 (16.0h) に対し、実績および残工数合計 (22.0h) が超過 (+6.0h)"
+        ]
+      }
+    }
+  },
+  "summary": {
+    "total_tasks": 5,
+    "delayed_tasks_count": 1,
+    "delayed_task_ids": ["task-api"]
+  },
+  "recommendations": [
+    {
+      "task_id": "task-api",
+      "current_deadline": "2026-09-11",
+      "recommended_deadline": "2026-09-15",
+      "delay_days": 2,
+      "message": "タスク 'task-api' の納期を 2026-09-15 以降に緩和することを推奨します"
+    }
+  ]
+}
+```
 
 ---
 
@@ -320,6 +405,59 @@ calendar:
 - **期待結果 (Then)**:
   - 週末・祝日は全メンバ非稼働日、個別不在日は対象メンバのみ非稼働日として正しく判定され、稼働可能日のみに工数が割り当てられること。
 
+### シナリオ 14: ベースライン計画との差分（Diff）算出 (AC-1)
+
+- **前提 (Given)**:
+  - ベースラインスケジュールと再計画後スケジュールが存在する。
+- **操作 (When)**:
+  - `compute_schedule_diff(baseline, replanned)` を実行する。
+- **期待結果 (Then)**:
+  - 全体 Makespan のスリップ日数（稼働日数差）、およびタスクごとの開始日差・終了日差・工期（稼働日数）差・担当者変更有無が正しく算出されること。
+
+### シナリオ 15: 遅延原因の自動診断と主原因特定 (AC-2)
+
+- **前提 (Given)**:
+  - ケース A: タスク `task-1` で見積 8h に対し実績 6h + 残工数 6h = 12h（+4h 超過）が発生している。
+  - ケース B: タスク `task-2` の担当メンバに作業期間中の不在日があり延伸している。
+  - ケース C: タスク `task-3` は自身の工数増大はないが、先行タスク `task-1` の遅延により開始が後ろ倒しになっている。
+- **操作 (When)**:
+  - `compute_schedule_diff` を実行する。
+- **期待結果 (Then)**:
+  - ケース A: 主原因 `workload_increase`、超過工数（+4.0h）の詳細が出力されること。
+  - ケース B: 主原因 `member_absence`、不在による延伸の詳細が出力されること。
+  - ケース C: 主原因 `dependency_delay`、先行タスク遅延波及の詳細が出力されること。
+
+### シナリオ 16: 納期超過タスクに対する推奨納期緩和日（Recommendations） (AC-3)
+
+- **前提 (Given)**:
+  - 再計画後スケジュールでタスクの終了日が納期（`deadline`）を超過している。
+- **操作 (When)**:
+  - `compute_schedule_diff` を実行する。
+- **期待結果 (Then)**:
+  - 当該タスクの現在の納期、推奨納期緩和日（再計画終了日以降）、遅延稼働日数を含む推奨オブジェクトが出力されること。
+
+### シナリオ 17: Python API および CLI サブコマンドの動作 (AC-4)
+
+- **前提 (Given)**:
+  - 原本 YAML および `actuals.yaml` を含むディレクトリが存在する。
+- **操作 (When)**:
+  - Python API `taskweave.engine.replan(dir, as_of_date=...)` を呼び出す。
+  - または CLI `taskweave replan <dir> --as-of <date> [--format text|json]` を実行する。
+- **期待結果 (Then)**:
+  - Python API は `{"baseline": ..., "replanned": ..., "diff": ...}` の構造化辞書を返すこと。
+  - CLI はテキスト形式で視認性の高いサマリーレポートを標準出力に表示すること。
+  - `--format json` 指定時はスキーマに合致する JSON 文字列を出力し終了コード 0 であること。
+  - `--as-of` 未指定時は終了コード 2 (引数エラー) で終了すること。
+
+### シナリオ 18: テストおよび品質ゲート全通過 (AC-5)
+
+- **前提 (Given)**:
+  - 新規作成した単体テスト（`test_diff.py`）および CLI テスト（`test_cli.py` の `replan` テスト）。
+- **操作 (When)**:
+  - `npm test`（pytest + node --test）および品質チェックコマンドを実行する。
+- **期待結果 (Then)**:
+  - 全テストが正常に通過し、フォーマット・静的解析・型チェック・OKF ドキュメントチェックすべてが成功すること。
+
 ---
 
 ## 5. 制約事項・スコープ外 (Out of Scope)
@@ -328,8 +466,8 @@ calendar:
    - 初期段階では「1タスク1担当者原則」を厳格に適用し、複数メンバによる実績記録はエラーとします。
 2. **タイムスタンプ付き時間帯記録**:
    - 工数は日単位・時間数（h）で管理し、開始・終了時刻（例: 09:00〜18:00）は管理しません。
-3. **ベースライン計画との差分（Diff）算出と遅延原因診断**:
-   - 前回計画との差分比較レポートは Issue #28 で実装します。
+3. **原本 YAML の自動書き換え・破壊的更新**:
+   - 再計画結果に基づく原本（`tasks.yaml` の納期変更など）の確定・自動更新機能は Milestone 4 で実装します（Milestone 3 では差分と推奨の出力に限定）。
 
 ---
 
@@ -341,3 +479,6 @@ calendar:
 - **実績工数（`actuals.yaml`）の独立ファイル化**:
   - **採択**: 別ファイル `actuals.yaml` の新設。
   - **理由**: 計画原本（`tasks.yaml`）と実績データ（`actuals.yaml`）を物理的に分離することで、元の見積工数や依存関係を保持したまま、任意の時点（As-of Date）からの再計算を可能にするため。
+- **差分比較モジュールの分離 (`taskweave.diff`)**:
+  - **採択**: ソルバー計算ロジック（`engine.py`）とは独立した `diff.py` への分離。
+  - **理由**: 単一責務の原則（SRP）およびテスト容易性の観点から、計画計算処理と差分・診断評価ロジックを分離し、将来の可視化機能（M4）等からも再利用可能とするため。
