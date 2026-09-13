@@ -153,6 +153,27 @@ task_progress:
         assert result.stderr == ""
         assert "検証に成功" in result.stdout
 
+    def test_valid_actuals_with_root_key_passes(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (basic_project_files / "actuals.yaml").write_text(
+            """actuals:
+  work_logs:
+    - date: '2026-09-10'
+      member_id: alice
+      task_id: task-api
+      hours: 4.0
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 12.0
+      status: in_progress
+""",
+            encoding="utf-8",
+        )
+        result = run_cli("validate", str(basic_project_files))
+        assert result.returncode == 0
+        assert result.stderr == ""
+        assert "検証に成功" in result.stdout
+
     def test_invalid_actuals_reports_file_line(self, basic_project_files):
         (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
         (basic_project_files / "actuals.yaml").write_text(
