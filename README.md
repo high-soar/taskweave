@@ -11,7 +11,7 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T01:20:00Z }
 
 コーディングエージェント向けのスケジュール調整ツールです。
 
-原本 YAML スキーマと検証ツールの整備（Milestone 1）、および Python / OR-Tools による計算エンジン MVP（Milestone 2）が完了し、現在は実績反映と再計画ワークフロー（Milestone 3）の準備段階です。
+原本 YAML スキーマと検証ツールの整備（Milestone 1）、Python / OR-Tools による計算エンジン MVP（Milestone 2）、および実績反映と再計画ワークフロー（Milestone 3）が完了し、現在はエージェント向け CLI & レポーティング（Milestone 4）の準備段階です。
 
 ## 目的
 
@@ -48,6 +48,7 @@ Taskweave では、これらの条件をテキストベースの原本として�
 - **原本 YAML のファイル分割とスキーマ定義**: [Milestone 1](ROADMAP.md#milestone-1-原本-yaml-スキーマ--検証ツール-data-schema--validation) で確定
 - **日本の祝日やチーム固有の稼働日（カレンダー原本）の扱い**: [Milestone 1](ROADMAP.md#milestone-1-原本-yaml-スキーマ--検証ツール-data-schema--validation) および [Milestone 2](ROADMAP.md#milestone-2-計算エンジン-mvp-scheduling-engine-mvp) で確定
 - **期限を守れない場合の診断結果と代替案の提示方法**: [Milestone 2](ROADMAP.md#milestone-2-計算エンジン-mvp-scheduling-engine-mvp) で確定
+- **実績反映・起算日再計画および差分比較（Diff）・遅延原因診断**: [Milestone 3](ROADMAP.md#milestone-3-実績反映--再計画ワークフロー-replanning--actuals) で確定
 - **エージェント向け CLI の体系と計画のレビュー・確定手順**: [Milestone 4](ROADMAP.md#milestone-4-エージェント向け-cli--レポーティング-agent-cli--reporting) で確定
 - **複数メンバでのタスク担当・日単位より細かい計画**: 初期 MVP ではスコープ外（YAGNI 原則）とし、[将来の検討事項](ROADMAP.md#将来の検討事項初期スコープ外--yagni) として整理
 
