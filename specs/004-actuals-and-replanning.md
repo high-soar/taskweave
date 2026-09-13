@@ -44,6 +44,7 @@ verified: { by: human:high-soar, at: 2026-09-12T15:40:16Z }
 - **FR-1 (`actuals.yaml` スキーマ定義)**:
   - 日々の実績作業ログ `work_logs`（日付 `date`, 担当者 `member_id`, タスク `task_id`, 実績工数 `hours`）を定義できること。
   - タスク進捗状況 `task_progress`（タスク `task_id`, 残工数 `remaining_hours`, 状態 `status`）を定義できること。
+  - トップレベル直下形式（`work_logs:`, `task_progress:`）に加え、他の原本 YAML と同様の `actuals:` ルートキーでラップされた形式（`actuals:\n  work_logs: ...`）も透過的に許容すること。
 - **FR-2 (`calendar.yaml` の個別不在拡張)**:
   - `calendar.yaml` の `calendar` オブジェクト配下に、メンバ個別の不在情報 `absences`（担当者 `member_id`, 不在日 `date`, 事由 `name`）を定義できること。
   - `absences` が省略されている場合でも、従来の `calendar.yaml` として後方互換性を完全に維持すること。
@@ -135,6 +136,9 @@ data/
 ### 3.1 `actuals.yaml` スキーマ
 
 日々の作業実績工数と、必要に応じたタスクの最新進捗状況を記録します。
+
+> [!NOTE]
+> `actuals.yaml` は、トップレベル直下に `work_logs` / `task_progress` を配置する形式に加え、他の原本（`members.yaml`, `calendar.yaml` 等）と整合性を持たせた `actuals:` ルートキーでラップした形式（`actuals:\n  work_logs: ...`）のどちらで記述しても透過的に解釈されます。
 
 ```yaml
 work_logs:
