@@ -52,6 +52,59 @@ Taskweave では、これらの条件をテキストベースの原本として�
 - **エージェント向け CLI の体系と計画のレビュー・確定手順**: [Milestone 4](ROADMAP.md#milestone-4-エージェント向け-cli--レポーティング-agent-cli--reporting) で確定
 - **複数メンバでのタスク担当・日単位より細かい計画**: 初期 MVP ではスコープ外（YAGNI 原則）とし、[将来の検討事項](ROADMAP.md#将来の検討事項初期スコープ外--yagni) として整理
 
+## 利用方法（別プロジェクト・DevContainer からの利用）
+
+現在、PyPI への一般公開前でも GitHub リポジトリから直接 CLI ツールとして実行またはインストールして利用できます。
+DevContainer 等の隔離環境から利用する場合に便利です。
+
+### 1. 一時実行（インストール不要）
+
+`uvx` を使用すると、ツールを事前インストールせずに GitHub から直接実行できます。
+
+```bash
+uvx --from "git+https://github.com/high-soar/taskweave.git#subdirectory=python" taskweave --help
+```
+
+最新のコードを強制的に再取得したい場合は `--refresh` を付与します：
+
+```bash
+uvx --refresh --from "git+https://github.com/high-soar/taskweave.git#subdirectory=python" taskweave --help
+```
+
+### 2. コンテナや環境への常設インストール（uv tool）
+
+独立した CLI コマンドとしてインストールし、常時 `taskweave` を実行できるようにします。
+
+```bash
+uv tool install "git+https://github.com/high-soar/taskweave.git" --subdirectory python
+```
+
+更新する場合は以下を実行します：
+
+```bash
+uv tool upgrade taskweave
+```
+
+### 3. 別プロジェクトの DevContainer 起動時に自動セットアップ
+
+別プロジェクトの `.devcontainer/devcontainer.json` に設定しておくことで、コンテナ作成時に自動的にインストールされます。
+
+```jsonc
+{
+  "postCreateCommand": "uv tool install git+https://github.com/high-soar/taskweave.git --subdirectory python",
+}
+```
+
+### 4. プロジェクトの依存関係として追加（pip / uv）
+
+```bash
+# uv の場合
+uv add "git+https://github.com/high-soar/taskweave.git" --subdirectory python
+
+# pip の場合
+pip install "git+https://github.com/high-soar/taskweave.git#subdirectory=python"
+```
+
 ## 開発ルール
 
 人が開発するときに守るルールの原本は [人向け開発ルール](docs/development/rules.md) です。Issue 管理、SDD/TDD、PR レビュー、Git branch/worktree、品質ゲート、Git フックの手順をまとめています。目次は [開発ルールの目次](docs/development/index.md) を参照してください。
