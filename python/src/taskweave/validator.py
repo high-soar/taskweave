@@ -247,6 +247,14 @@ def validate_actuals(yaml_string: str) -> ValidationResult:
         errors.append("actuals: オブジェクトが必須です")
         return ValidationResult(valid=False, errors=errors, data={"work_logs": [], "task_progress": []})
 
+    # actuals: ルートキーでラップされている場合はアンラップ
+    if "actuals" in parsed:
+        inner = parsed["actuals"]
+        if not isinstance(inner, dict):
+            errors.append("actuals: オブジェクトが必須です")
+            return ValidationResult(valid=False, errors=errors, data={"work_logs": [], "task_progress": []})
+        parsed = inner
+
     work_logs: list[dict[str, Any]] = []
     if "work_logs" in parsed:
         raw_wl = parsed["work_logs"]

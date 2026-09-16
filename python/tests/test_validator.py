@@ -472,6 +472,37 @@ task_progress:
         assert result.data["work_logs"] == []
         assert result.data["task_progress"] == []
 
+    def test_actuals_yaml_with_root_key(self):
+        """actuals: ルートキーでラップされた形式も透過的に許容すること."""
+        yaml_content = """
+actuals:
+  work_logs:
+    - date: "2026-09-10"
+      member_id: "alice"
+      task_id: "task-api"
+      hours: 6.0
+  task_progress:
+    - task_id: "task-api"
+      remaining_hours: 5.5
+      status: "in_progress"
+"""
+        result = validate_actuals(yaml_content)
+        assert result.valid is True
+        assert len(result.errors) == 0
+        assert len(result.data["work_logs"]) == 1
+        assert len(result.data["task_progress"]) == 1
+        assert result.data["work_logs"][0]["hours"] == 6.0
+        assert result.data["task_progress"][0]["remaining_hours"] == 5.5
+
+    def test_actuals_yaml_with_invalid_root_key(self):
+        """actuals: ルートキーの値がオブジェクトでない場合はエラーになること."""
+        yaml_content = """
+actuals: "invalid"
+"""
+        result = validate_actuals(yaml_content)
+        assert result.valid is False
+        assert any("actuals: オブジェクトが必須です" in err for err in result.errors)
+
     def test_actuals_work_logs_missing_fields(self):
         yaml_missing = """
 work_logs:
@@ -784,6 +815,29 @@ task_progress:
   - task_id: "task-api"
     remaining_hours: 12.0
     status: "in_progress"
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is True
+        assert res.actuals is not None
+        assert len(res.actuals["work_logs"]) == 1
+
+    def test_project_data_with_actuals_root_key(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text(
+            """actuals:
+  work_logs:
+    - date: "2026-09-10"
+      member_id: "alice"
+      task_id: "task-api"
+      hours: 4.0
+  task_progress:
+    - task_id: "task-api"
+      remaining_hours: 12.0
+      status: "in_progress"
 """,
             encoding="utf-8",
         )
