@@ -340,4 +340,151 @@ task_progress:
         assert result.returncode == 1
 
 
+class TestPlanCLI:
+    """taskweave plan サブコマンドのテスト (AC-1 ~ AC-6)."""
+
+    def test_plan_help(self):
+        result = run_cli("plan", "--help")
+        assert result.returncode == 0
+        assert "--format" in result.stdout
+        assert "--output" in result.stdout
+
+    def test_plan_basic_text_output(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("plan", str(basic_project_files))
+        assert result.returncode == 0
+        assert "Taskweave Schedule Plan Report" in result.stdout
+        assert "Status: OPTIMAL" in result.stdout
+        assert "Makespan:" in result.stdout
+        assert "task-api" in result.stdout
+        assert "task-ui" in result.stdout
+
+    def test_plan_default_directory_data(self, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (data_dir / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (data_dir / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        result = run_cli("plan", cwd=str(tmp_path))
+        assert result.returncode == 0
+        assert "Taskweave Schedule Plan Report" in result.stdout
+
+    def test_plan_json_output(self, basic_project_files):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("plan", str(basic_project_files), "--format", "json")
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["status"] in ("OPTIMAL", "FEASIBLE")
+        assert "makespan_workdays" in data
+        assert "tasks" in data
+        assert "task-api" in data["tasks"]
+        assert "assigned_to" in data["tasks"]["task-api"]
+        assert "start_date" in data["tasks"]["task-api"]
+        assert "end_date" in data["tasks"]["task-api"]
+
+    def test_plan_output_file_json_and_replan_compatibility(self, basic_project_files, tmp_path):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (basic_project_files / "actuals.yaml").write_text(
+            """work_logs:
+  - date: '2026-09-08'
+    member_id: alice
+    task_id: task-api
+    hours: 8.0
+task_progress:
+  - task_id: task-api
+    remaining_hours: 8.0
+    status: in_progress
+""",
+            encoding="utf-8",
+        )
+        output_file = tmp_path / "baseline_plan.json"
+        result = run_cli(
+            "plan",
+            str(basic_project_files),
+            "--format",
+            "json",
+            "--output",
+            str(output_file),
+        )
+        assert result.returncode == 0
+        assert output_file.exists()
+        saved_data = json.loads(output_file.read_text(encoding="utf-8"))
+        assert saved_data["status"] in ("OPTIMAL", "FEASIBLE")
+
+        # 保存した baseline_plan.json がそのまま replan の --baseline で動作すること
+        replan_res = run_cli(
+            "replan",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--baseline",
+            str(output_file),
+            "--format",
+            "json",
+        )
+        assert replan_res.returncode == 0
+        replan_data = json.loads(replan_res.stdout)
+        assert "diff" in replan_data
+
+    def test_plan_output_file_text(self, basic_project_files, tmp_path):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        output_file = tmp_path / "plan.txt"
+        result = run_cli(
+            "plan",
+            str(basic_project_files),
+            "--output",
+            str(output_file),
+        )
+        assert result.returncode == 0
+        assert output_file.exists()
+        content = output_file.read_text(encoding="utf-8")
+        assert "Taskweave Schedule Plan Report" in content
+
+    def test_plan_validation_error_fails(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text("invalid: yaml: content: [", encoding="utf-8")
+        result = run_cli("plan", str(basic_project_files))
+        assert result.returncode == 1
+        assert "tasks.yaml:1:" in result.stderr
+
+    def test_plan_with_explicit_start_date(self, basic_project_files):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("plan", str(basic_project_files), "--start-date", "2026-09-01", "--format", "json")
+        assert result.returncode == 0
+        data = json.loads(result.stdout)
+        assert data["tasks"]["task-api"]["start_date"] == "2026-09-01"
+
+    def test_plan_invalid_start_date_fails(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("plan", str(basic_project_files), "--start-date", "not-a-date")
+        assert result.returncode == 1
+        assert "--start-date" in result.stderr
+
+    def test_plan_with_delayed_deadline_diagnostics(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text(
+            """tasks:
+  - id: task-tight
+    title: 'Tight deadline'
+    estimate_hours: 16.0
+    required_skills:
+      - backend
+    deadline: '2026-09-02'
+""",
+            encoding="utf-8",
+        )
+        result = run_cli("plan", str(basic_project_files), "--start-date", "2026-09-03")
+        assert result.returncode == 0
+        assert "Delayed Tasks & Diagnostics" in result.stdout
+        assert "task-tight" in result.stdout
+        assert "納期緩和推奨" in result.stdout
+
+
+
+
 

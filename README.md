@@ -105,6 +105,22 @@ uv add "git+https://github.com/high-soar/taskweave.git" --subdirectory python
 pip install "git+https://github.com/high-soar/taskweave.git#subdirectory=python"
 ```
 
+### 5. CLI コマンド例
+
+```bash
+# 原本 YAML の検証
+taskweave validate data
+
+# 原本 YAML から初期計画を計算（テキストサマリ表示）
+taskweave plan data
+
+# 初期計画を JSON でファイル保存（ベースライン計画の作成）
+taskweave plan data --format json --output baseline.json
+
+# 起算日を指定した再計画とベースライン差分（Diff）診断
+taskweave replan data --as-of 2026-09-09 --baseline baseline.json
+```
+
 ## 開発ルール
 
 人が開発するときに守るルールの原本は [人向け開発ルール](docs/development/rules.md) です。Issue 管理、SDD/TDD、PR レビュー、Git branch/worktree、品質ゲート、Git フックの手順をまとめています。目次は [開発ルールの目次](docs/development/index.md) を参照してください。

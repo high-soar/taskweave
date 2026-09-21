@@ -29,6 +29,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [OKF 文書管理とタグインデックス](specs/002-okf-document-management.md) - Git 管理下の Taskweave 文書に OKF frontmatter を適用し、タグ集約インデックスと自動検査を提供する仕様
 - [計算エンジンの入出力および制約モデル仕様](specs/003-scheduling-engine.md) - Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
 - [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
 - [Taskweave 仕様書](specs/README.md) - Taskweave の仕様書と仕様書ライフサイクルの案内
 - [\[仕様書タイトル\]](specs/templates/spec-template.md) - \[この仕様の目的と概要を1行で要約\]
 
@@ -37,9 +38,11 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [absences](#tag-absences)
 - [actuals](#tag-actuals)
 - [ai-agents](#tag-ai-agents)
+- [apply](#tag-apply)
 - [bottleneck](#tag-bottleneck)
 - [calendar](#tag-calendar)
 - [capacity](#tag-capacity)
+- [cli](#tag-cli)
 - [deadline](#tag-deadline)
 - [development](#tag-development)
 - [diagnostics](#tag-diagnostics)
@@ -49,18 +52,24 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [git](#tag-git)
 - [holidays](#tag-holidays)
 - [interruption](#tag-interruption)
+- [log](#tag-log)
+- [markdown](#tag-markdown)
+- [mermaid](#tag-mermaid)
 - [milestone-1](#tag-milestone-1)
 - [milestone-2](#tag-milestone-2)
 - [milestone-3](#tag-milestone-3)
+- [milestone-4](#tag-milestone-4)
 - [milestones](#tag-milestones)
 - [okf](#tag-okf)
 - [or-tools](#tag-or-tools)
 - [part-time](#tag-part-time)
+- [plan](#tag-plan)
 - [planning](#tag-planning)
 - [priority](#tag-priority)
 - [project](#tag-project)
 - [project-rules](#tag-project-rules)
 - [replanning](#tag-replanning)
+- [reporting](#tag-reporting)
 - [review](#tag-review)
 - [roadmap](#tag-roadmap)
 - [scenario](#tag-scenario)
@@ -88,6 +97,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 - [Taskweave Project Agent Guidelines](AGENTS.md) - Taskweave のエージェントと開発者が共有するプロジェクト運用指針
 
+### Tag: apply
+
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
+
 ### Tag: bottleneck
 
 - [実務シナリオ 1: 新機能スプリントでの見積超過・手戻りと納期危機](docs/scenarios/01-overrun-and-replan.md) - 認証基盤リプレイスで手戻り工数超過が発生し、実績を記録して起算日再計画を行い、納期遅延診断とボトルネック特定を通じて改善点を探るシナリオ
@@ -101,6 +114,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 - [実務シナリオ 2: リリース直前のキースタッフ突発病欠と属人化の壁](docs/scenarios/02-sudden-absence-and-skills.md) - クラウドインフラ移行で唯一のインフラ担当者が突発病欠し、スキル制約下での代替割当や属人化ボトルネックを再計画で検証するシナリオ
 - [実務シナリオ 4: 大型連休の飛び石稼働と短時間勤務・業務委託混成チーム](docs/scenarios/04-holiday-and-part-time.md) - ゴールデンウィークの飛び石連休と、時短勤務社員・週2日稼働の外部エキスパートが混在するチームでのスケジュール平準化とカレンダー表現を検証するシナリオ
+
+### Tag: cli
+
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
 
 ### Tag: deadline
 
@@ -140,6 +157,18 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 - [実務シナリオ 3: 本番障害による緊急割り込みタスクとスコープ調整](docs/scenarios/03-emergency-interruption.md) - 通常スプリント中に本番P0インシデントが発生し、緊急パッチタスクの割り込みと既存タスクの後ろ倒し・スコープ外トリアージを検証するシナリオ
 
+### Tag: log
+
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
+
+### Tag: markdown
+
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
+
+### Tag: mermaid
+
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
+
 ### Tag: milestone-1
 
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
@@ -152,6 +181,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: milestone-3
 
 - [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
+
+### Tag: milestone-4
+
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
 
 ### Tag: milestones
 
@@ -168,6 +201,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: part-time
 
 - [実務シナリオ 4: 大型連休の飛び石稼働と短時間勤務・業務委託混成チーム](docs/scenarios/04-holiday-and-part-time.md) - ゴールデンウィークの飛び石連休と、時短勤務社員・週2日稼働の外部エキスパートが混在するチームでのスケジュール平準化とカレンダー表現を検証するシナリオ
+
+### Tag: plan
+
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
 
 ### Tag: planning
 
@@ -189,6 +226,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 - [実務シナリオ 1: 新機能スプリントでの見積超過・手戻りと納期危機](docs/scenarios/01-overrun-and-replan.md) - 認証基盤リプレイスで手戻り工数超過が発生し、実績を記録して起算日再計画を行い、納期遅延診断とボトルネック特定を通じて改善点を探るシナリオ
 - [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
+
+### Tag: reporting
+
+- [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
 
 ### Tag: review
 
