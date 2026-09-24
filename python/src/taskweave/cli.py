@@ -15,6 +15,7 @@ import datetime
 import json
 from pathlib import Path
 import re
+import shutil
 import sys
 from typing import Any
 import yaml
@@ -576,7 +577,15 @@ def main(argv: list[str] | None = None) -> int:
 
         target_dir = Path(args.directory).resolve()
         out_path = Path(args.output).resolve() if args.output else (Path(args.baseline).resolve() if args.baseline else target_dir / "baseline.json")
-        baseline_path = Path(args.baseline).resolve() if args.baseline else (out_path if out_path.exists() else None)
+
+        if args.baseline:
+            baseline_path = Path(args.baseline).resolve()
+        elif out_path.exists():
+            baseline_path = out_path
+        elif (target_dir / "baseline.json").exists():
+            baseline_path = target_dir / "baseline.json"
+        else:
+            baseline_path = None
 
         baseline_data = None
         if baseline_path and baseline_path.exists():
@@ -600,6 +609,12 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"再計画の実行に失敗しました: {err}\n")
             return 1
 
+        replanned_data = result.get("replanned", {})
+        status = replanned_data.get("status")
+        if status not in ("OPTIMAL", "FEASIBLE"):
+            sys.stderr.write(f"再計画の計算が完了しませんでした (ステータス: {status})\n")
+            return 1
+
         diff_res = result.get("diff", {})
         summary_text = format_diff_summary(diff_res)
         sys.stdout.write(summary_text + "\n")
@@ -609,13 +624,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         # ベースライン更新
-        replanned_data = result.get("replanned", {})
         replanned_json = json.dumps(replanned_data, ensure_ascii=False, indent=2) + "\n"
 
         if out_path.exists() and not args.no_backup:
             backup_path = out_path.with_name(out_path.name + ".bak")
             try:
-                import shutil
                 shutil.copy2(out_path, backup_path)
                 sys.stdout.write(f"[Backup] 既存ベースラインのバックアップを作成しました: {backup_path}\n")
             except Exception as err:
@@ -639,7 +652,6 @@ def main(argv: list[str] | None = None) -> int:
                 if not args.no_backup:
                     tasks_bak = tasks_file.with_name(tasks_file.name + ".bak")
                     try:
-                        import shutil
                         shutil.copy2(tasks_file, tasks_bak)
                         sys.stdout.write(f"[Backup] 既存 tasks.yaml のバックアップを作成しました: {tasks_bak}\n")
                     except Exception as err:
@@ -668,15 +680,22 @@ def main(argv: list[str] | None = None) -> int:
                     modified_count = 0
                     for t in tasks_list:
                         tid = t.get("id")
-                        if tid in rec_deadlines:
+                        if tid in rec_deadlines and t.get("deadline") != rec_deadlines[tid]:
                             t["deadline"] = rec_deadlines[tid]
                             modified_count += 1
-                        if tid in reassigned:
+                        if tid in reassigned and t.get("assigned_to") != reassigned[tid]:
                             t["assigned_to"] = reassigned[tid]
                             modified_count += 1
 
                     if modified_count > 0:
                         updated_yaml = yaml.dump(raw_data, allow_unicode=True, sort_keys=False)
+                        val_res = validate_tasks(updated_yaml)
+                        if not val_res.valid:
+                            sys.stderr.write("更新後の tasks.yaml のスキーマ検証に失敗しました:\n")
+                            for err in val_res.errors:
+                                sys.stderr.write(f"  {err}\n")
+                            return 1
+
                         tmp_yaml = tasks_file.with_name(f".{tasks_file.name}.tmp")
                         tmp_yaml.write_text(updated_yaml, encoding="utf-8")
                         tmp_yaml.replace(tasks_file)
