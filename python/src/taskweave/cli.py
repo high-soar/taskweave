@@ -2,8 +2,8 @@
 
 コマンド:
 - taskweave validate [dir]
-- taskweave plan [dir] [--start-date <date>] [--format text|json] [--output <path>]
-- taskweave replan [dir] --as-of <date> [--baseline <path>] [--format text|json]
+- taskweave plan [dir] [--start-date <date>] [--format text|json|mermaid|markdown] [--output <path>]
+- taskweave replan [dir] --as-of <date> [--baseline <path>] [--format text|json|mermaid|markdown] [--output <path>]
 - taskweave log <date> [dir] --member <id> --task <id> --hours <h> [--remaining <h>] [--status <status>] [--add]
 """
 
@@ -282,9 +282,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     plan_parser.add_argument(
         "--format",
-        choices=["text", "json"],
+        choices=["text", "json", "mermaid", "markdown"],
         default="text",
-        help="出力フォーマット (text または json, デフォルト: text)",
+        help="出力フォーマット (text, json, mermaid, markdown, デフォルト: text)",
     )
     plan_parser.add_argument(
         "--output",
@@ -313,9 +313,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     replan_parser.add_argument(
         "--format",
-        choices=["text", "json"],
+        choices=["text", "json", "mermaid", "markdown"],
         default="text",
-        help="出力フォーマット (text または json, デフォルト: text)",
+        help="出力フォーマット (text, json, mermaid, markdown, デフォルト: text)",
+    )
+    replan_parser.add_argument(
+        "--output",
+        help="再計画結果の出力先ファイルパス (省略時は標準出力のみ)",
     )
 
     # log サブコマンド
@@ -423,6 +427,14 @@ def main(argv: list[str] | None = None) -> int:
 
         if args.format == "json":
             output_content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+        elif args.format == "mermaid":
+            from taskweave.reporting import format_plan_mermaid
+
+            output_content = format_plan_mermaid(result, tasks_data=tasks) + "\n"
+        elif args.format == "markdown":
+            from taskweave.reporting import format_plan_markdown
+
+            output_content = format_plan_markdown(result) + "\n"
         else:
             output_content = format_plan_summary(result) + "\n"
 
@@ -467,11 +479,30 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         if args.format == "json":
-            sys.stdout.write(json.dumps(result, ensure_ascii=False, indent=2) + "\n")
+            output_content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+        elif args.format == "mermaid":
+            from taskweave.reporting import format_replan_mermaid
+
+            output_content = format_replan_mermaid(result) + "\n"
+        elif args.format == "markdown":
+            from taskweave.reporting import format_replan_markdown
+
+            output_content = format_replan_markdown(result) + "\n"
         else:
             diff_res = result.get("diff", {})
             summary_text = format_diff_summary(diff_res)
-            sys.stdout.write(summary_text + "\n")
+            output_content = summary_text + "\n"
+
+        if args.output:
+            try:
+                out_path = Path(args.output)
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(output_content, encoding="utf-8")
+            except Exception as err:
+                sys.stderr.write(f"出力ファイルへの書き込みに失敗しました: {err}\n")
+                return 1
+
+        sys.stdout.write(output_content)
         return 0
 
     if args.subcommand == "log":

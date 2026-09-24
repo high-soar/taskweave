@@ -981,6 +981,88 @@ class TestLogCLI:
         assert "work_logs" in content["actuals"]
 
 
+class TestVisualReportingCLI:
+    def test_plan_format_mermaid(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("plan", str(basic_project_files), "--format", "mermaid")
+        assert result.returncode == 0
+        assert "gantt" in result.stdout
+        assert "title Taskweave Schedule Plan" in result.stdout
+        assert "section alice" in result.stdout
+        assert "task-api" in result.stdout
+        assert "task-ui" in result.stdout
+
+    def test_plan_format_markdown(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("plan", str(basic_project_files), "--format", "markdown")
+        assert result.returncode == 0
+        assert "# スケジュール計画レポート" in result.stdout
+        assert "## 全体サマリ" in result.stdout
+        assert "## タスク一覧" in result.stdout
+
+    def test_plan_format_mermaid_with_output(self, basic_project_files, tmp_path):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        out_file = tmp_path / "plan.mermaid"
+        result = run_cli("plan", str(basic_project_files), "--format", "mermaid", "--output", str(out_file))
+        assert result.returncode == 0
+        assert out_file.exists()
+        content = out_file.read_text(encoding="utf-8")
+        assert "gantt" in content
+        assert content == result.stdout
+
+    def test_replan_format_mermaid(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("replan", str(basic_project_files), "--as-of", "2026-09-09", "--format", "mermaid")
+        assert result.returncode == 0
+        assert "gantt" in result.stdout
+        assert "title Taskweave Replanned Schedule" in result.stdout
+
+    def test_replan_format_markdown(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli("replan", str(basic_project_files), "--as-of", "2026-09-09", "--format", "markdown")
+        assert result.returncode == 0
+        assert "# スケジュール再計画レポート" in result.stdout
+        assert "## ベースライン比較サマリ" in result.stdout
+        assert "## 再計画タスク一覧" in result.stdout
+
+    def test_replan_output_option(self, basic_project_files, tmp_path):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        out_file = tmp_path / "replan.md"
+        result = run_cli(
+            "replan",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--format",
+            "markdown",
+            "--output",
+            str(out_file),
+        )
+        assert result.returncode == 0
+        assert out_file.exists()
+        content = out_file.read_text(encoding="utf-8")
+        assert "# スケジュール再計画レポート" in content
+        assert content == result.stdout
+
+    def test_replan_output_creates_parent_directories(self, basic_project_files, tmp_path):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        nested_out = tmp_path / "deep" / "nested" / "replan.md"
+        result = run_cli(
+            "replan",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--format",
+            "markdown",
+            "--output",
+            str(nested_out),
+        )
+        assert result.returncode == 0
+        assert nested_out.exists()
+        content = nested_out.read_text(encoding="utf-8")
+        assert "# スケジュール再計画レポート" in content
+
+
 
 
 
