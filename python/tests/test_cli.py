@@ -601,6 +601,25 @@ class TestVisualReportingCLI:
         assert "# スケジュール再計画レポート" in content
         assert content == result.stdout
 
+    def test_replan_output_creates_parent_directories(self, basic_project_files, tmp_path):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        nested_out = tmp_path / "deep" / "nested" / "replan.md"
+        result = run_cli(
+            "replan",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--format",
+            "markdown",
+            "--output",
+            str(nested_out),
+        )
+        assert result.returncode == 0
+        assert nested_out.exists()
+        content = nested_out.read_text(encoding="utf-8")
+        assert "# スケジュール再計画レポート" in content
+
+
 
 
 
