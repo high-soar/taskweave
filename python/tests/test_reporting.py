@@ -202,7 +202,7 @@ class TestReportingPlan:
         assert "section alice" in chart
         assert "section bob" in chart
         # task-setup
-        assert "task-setup :task-setup, 2026-09-08, 2026-09-08" in chart
+        assert "task-setup : task-setup, 2026-09-08, 2026-09-08" in chart
         # task-api has dependency on task-setup and delay -> crit
         assert "crit" in chart
         assert "after task-setup" in chart
@@ -223,6 +223,30 @@ class TestReportingPlan:
         assert "## 遅延タスク診断" in doc
         assert "## 納期緩和推奨" in doc
 
+    def test_format_plan_with_none_values(self):
+        plan_data = {
+            "status": "OPTIMAL",
+            "makespan_workdays": 1,
+            "tasks": {
+                "task-none": {
+                    "assigned_to": None,
+                    "start_date": "2026-09-01",
+                    "end_date": "2026-09-01",
+                    "workdays_count": 1,
+                    "estimate_hours": None,
+                }
+            },
+        }
+        # Markdown テーブルで None が crash せず unassigned / 0.0h になること
+        doc = format_plan_markdown(plan_data)
+        assert "| task-none | unassigned | 2026-09-01 | 2026-09-01 | 1 | 0.0h |" in doc
+        assert "| unassigned | 1 | 0.0h |" in doc
+
+        # Mermaid で section unassigned になること
+        chart = format_plan_mermaid(plan_data)
+        assert "section unassigned" in chart
+        assert "task-none : task-none, 2026-09-01, 2026-09-01" in chart
+
 
 class TestReportingReplan:
     def test_format_replan_mermaid_with_actuals_and_progress(self, sample_replan_result):
@@ -234,8 +258,70 @@ class TestReportingReplan:
         assert "task-setup" in chart
         assert "done" in chart
         # in_progress task has actuals (done) and remaining (active/crit)
-        assert "[実績]" in chart or "[完了]" in chart
-        assert "[残工数]" in chart or "task-api" in chart
+        assert "[実績] : done" in chart
+        assert "[残工数] : active" in chart or "[残工数] : crit, active" in chart
+
+    def test_format_replan_mermaid_in_progress_edge_cases(self):
+        # 1. daily_hours が空の場合 -> 単一バーで active
+        data_empty_daily = {
+            "replanned": {
+                "as_of_date": "2026-09-09",
+                "tasks": {
+                    "t1": {
+                        "assigned_to": "alice",
+                        "status": "in_progress",
+                        "start_date": "2026-09-09",
+                        "end_date": "2026-09-10",
+                        "remaining_hours": 8.0,
+                        "daily_hours": {},
+                    }
+                },
+            },
+            "diff": {"tasks": {}},
+        }
+        chart1 = format_replan_mermaid(data_empty_daily)
+        assert "t1 : active, t1, 2026-09-09, 2026-09-10" in chart1
+
+        # 2. 実績のみ存在する場合 -> [実績] のみ
+        data_past_only = {
+            "replanned": {
+                "as_of_date": "2026-09-09",
+                "tasks": {
+                    "t2": {
+                        "assigned_to": "alice",
+                        "status": "in_progress",
+                        "start_date": "2026-09-08",
+                        "end_date": "2026-09-09",
+                        "daily_hours": {"2026-09-08": 8.0},
+                    }
+                },
+            },
+            "diff": {"tasks": {}},
+        }
+        chart2 = format_replan_mermaid(data_past_only)
+        assert "t2 [実績] : done, t2-actual, 2026-09-08, 2026-09-08" in chart2
+        assert "[残工数]" not in chart2
+
+        # 3. 残工数のみ存在する場合 -> [残工数] のみ
+        data_future_only = {
+            "replanned": {
+                "as_of_date": "2026-09-09",
+                "tasks": {
+                    "t3": {
+                        "assigned_to": "alice",
+                        "status": "in_progress",
+                        "start_date": "2026-09-10",
+                        "end_date": "2026-09-11",
+                        "remaining_hours": 16.0,
+                        "daily_hours": {"2026-09-10": 8.0, "2026-09-11": 8.0},
+                    }
+                },
+            },
+            "diff": {"tasks": {}},
+        }
+        chart3 = format_replan_mermaid(data_future_only)
+        assert "t3 [残工数] : active, t3, 2026-09-10, 2026-09-11" in chart3
+        assert "[実績]" not in chart3
 
     def test_format_replan_markdown_with_diff_and_diagnostics(self, sample_replan_result):
         doc = format_replan_markdown(sample_replan_result)
@@ -244,12 +330,43 @@ class TestReportingReplan:
         assert "3 稼働日" in doc
         assert "4 稼働日" in doc
         assert "+1 稼働日" in doc
-        assert "## 遅延タスク診断" in doc
+        assert "## 遅延タスク診断 (Delayed Tasks & Diagnostics)" in doc
         assert "task-api" in doc
         assert "工数超過 (workload_increase)" in doc
         assert "+1日" in doc
-        assert "## 再計画タスク一覧" in doc
+        assert "## 再計画タスク一覧 (Replanned Tasks)" in doc
         assert "task-setup" in doc
         assert "completed" in doc
-        assert "## 納期緩和推奨" in doc
+        assert "## 納期緩和推奨 (Recommendations)" in doc
+
+    def test_format_replan_markdown_no_delays(self):
+        replan_no_delays = {
+            "baseline": {"makespan_workdays": 3, "tasks": {"t1": {"delay_days": 0}}},
+            "replanned": {
+                "makespan_workdays": 3,
+                "tasks": {
+                    "t1": {
+                        "assigned_to": None,
+                        "status": "not_started",
+                        "start_date": "2026-09-01",
+                        "end_date": "2026-09-03",
+                        "workdays_count": 3,
+                        "total_logged_hours": 0.0,
+                        "remaining_hours": 24.0,
+                        "delay_days": 0,
+                    }
+                },
+            },
+            "diff": {
+                "makespan": {"baseline_workdays": 3, "replanned_workdays": 3, "slip_workdays": 0},
+                "tasks": {},
+                "summary": {"delayed_task_ids": []},
+                "recommendations": [],
+            },
+        }
+        doc = format_replan_markdown(replan_no_delays)
+        assert "遅延タスクはありません。計画通り進行しています。" in doc
+        assert "| 遅延タスク数 | 0 | 0 | +0 |" in doc
+        assert "| t1 | unassigned | not_started |" in doc
+
 

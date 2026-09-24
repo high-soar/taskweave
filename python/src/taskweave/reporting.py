@@ -55,13 +55,14 @@ def format_plan_mermaid(
                 tags.append("crit")
 
             deps = deps_map.get(t_id, [])
-            tag_prefix = ", ".join(tags) + (", " if tags else "")
+            tag_prefix = ", ".join(tags)
+            tag_str = f" {tag_prefix}, " if tag_prefix else " "
 
             if deps:
                 after_str = f"after {' '.join(deps)}"
-                lines.append(f"    {t_id} :{tag_prefix}{t_id}, {after_str}, {e_date}")
+                lines.append(f"    {t_id} :{tag_str}{t_id}, {after_str}, {e_date}")
             else:
-                lines.append(f"    {t_id} :{tag_prefix}{t_id}, {s_date}, {e_date}")
+                lines.append(f"    {t_id} :{tag_str}{t_id}, {s_date}, {e_date}")
 
     lines.append("```")
     return "\n".join(lines)
@@ -86,7 +87,7 @@ def format_plan_markdown(plan_data: dict[str, Any]) -> str:
     overall_start = min(start_dates) if start_dates else "-"
     overall_end = max(end_dates) if end_dates else "-"
 
-    total_est = sum(float(t.get("estimate_hours", 0.0)) for t in tasks.values())
+    total_est = sum(float(t.get("estimate_hours") or 0.0) for t in tasks.values())
 
     lines.append(f"| ステータス | {status} |")
     lines.append(f"| Makespan | {makespan} 稼働日 ({overall_start} ~ {overall_end}) |")
@@ -100,11 +101,11 @@ def format_plan_markdown(plan_data: dict[str, Any]) -> str:
 
     sorted_tasks = sorted(tasks.items(), key=lambda item: (item[1].get("start_date", ""), item[0]))
     for t_id, t_info in sorted_tasks:
-        assignee = t_info.get("assigned_to", "unassigned")
+        assignee = t_info.get("assigned_to") or "unassigned"
         s_date = t_info.get("start_date", "-")
         e_date = t_info.get("end_date", "-")
         w_days = t_info.get("workdays_count", 0)
-        est = float(t_info.get("estimate_hours", 0.0))
+        est = float(t_info.get("estimate_hours") or 0.0)
         deadline = t_info.get("deadline") or "-"
         delay = t_info.get("delay_days", 0)
         delay_str = f"+{delay}日" if delay > 0 else "-"
@@ -118,7 +119,7 @@ def format_plan_markdown(plan_data: dict[str, Any]) -> str:
     member_summary: dict[str, list[float]] = {}
     for t_info in tasks.values():
         m = t_info.get("assigned_to") or "unassigned"
-        member_summary.setdefault(m, []).append(float(t_info.get("estimate_hours", 0.0)))
+        member_summary.setdefault(m, []).append(float(t_info.get("estimate_hours") or 0.0))
 
     for m in sorted(member_summary.keys(), key=lambda x: (x == "unassigned", x)):
         m_tasks = member_summary[m]
@@ -153,10 +154,7 @@ def format_plan_markdown(plan_data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_replan_mermaid(
-    replan_result: dict[str, Any],
-    tasks_data: list[dict[str, Any]] | None = None,
-) -> str:
+def format_replan_mermaid(replan_result: dict[str, Any]) -> str:
     """再計画結果を過去実績・残工数が可視化された Mermaid gantt 記法に整形する."""
     lines: list[str] = [
         "```mermaid",
@@ -192,32 +190,38 @@ def format_replan_mermaid(
             s_date = t_info.get("start_date", "-")
             e_date = t_info.get("end_date", "-")
             status = t_info.get("status", "not_started")
-            logged_hours = float(t_info.get("total_logged_hours") or 0.0)
             remaining_hours = float(t_info.get("remaining_hours") or 0.0)
             daily_hours: dict[str, float] = t_info.get("daily_hours", {})
 
             is_delayed = bool(tasks_diff.get(t_id, {}).get("diagnostics", {}).get("is_delayed"))
-            delay_tag = "crit, " if is_delayed else ""
+            delay_prefix = "crit, " if is_delayed else ""
 
-            if status in ("completed", "done") or remaining_hours == 0:
-                lines.append(f"    {t_id} [完了] :done, {t_id}, {s_date}, {e_date}")
-            elif status == "in_progress" and daily_hours and as_of:
-                past_days = [d for d, h in daily_hours.items() if d <= as_of and h > 0]
-                future_days = [d for d, h in daily_hours.items() if d > as_of and h > 0]
+            if status in ("completed", "done"):
+                lines.append(f"    {t_id} [完了] : done, {t_id}, {s_date}, {e_date}")
+            elif status == "in_progress":
+                past_days = [d for d, h in daily_hours.items() if d <= as_of and h > 0] if daily_hours and as_of else []
+                future_days = [d for d, h in daily_hours.items() if d > as_of and h > 0] if daily_hours and as_of else []
 
-                if past_days:
+                if past_days and future_days:
                     lines.append(
-                        f"    {t_id} [実績] :done, {t_id}-actual, {min(past_days)}, {max(past_days)}"
+                        f"    {t_id} [実績] : done, {t_id}-actual, {min(past_days)}, {max(past_days)}"
                     )
-                if future_days:
                     lines.append(
-                        f"    {t_id} [残工数] :{delay_tag}active, {t_id}, {min(future_days)}, {max(future_days)}"
+                        f"    {t_id} [残工数] : {delay_prefix}active, {t_id}, {min(future_days)}, {max(future_days)}"
                     )
-                elif not past_days:
-                    lines.append(f"    {t_id} :{delay_tag}{t_id}, {s_date}, {e_date}")
+                elif past_days:
+                    lines.append(
+                        f"    {t_id} [実績] : done, {t_id}-actual, {min(past_days)}, {max(past_days)}"
+                    )
+                elif future_days:
+                    lines.append(
+                        f"    {t_id} [残工数] : {delay_prefix}active, {t_id}, {min(future_days)}, {max(future_days)}"
+                    )
+                else:
+                    lines.append(f"    {t_id} : {delay_prefix}active, {t_id}, {s_date}, {e_date}")
             else:
-                tag = f"{delay_tag}active, " if status == "in_progress" else delay_tag
-                lines.append(f"    {t_id} :{tag}{t_id}, {s_date}, {e_date}")
+                tag_str = f" {delay_prefix}" if delay_prefix else " "
+                lines.append(f"    {t_id} :{tag_str}{t_id}, {s_date}, {e_date}")
 
     lines.append("```")
     return "\n".join(lines)
@@ -252,18 +256,18 @@ def format_replan_markdown(replan_result: dict[str, Any]) -> str:
 
     summary = diff.get("summary", {})
     delayed_ids = summary.get("delayed_task_ids", [])
-    delayed_count = len(delayed_ids)
 
     b_delayed_count = sum(1 for t in b_tasks.values() if (t.get("delay_days") or 0) > 0)
-    delay_slip = delayed_count - b_delayed_count
+    r_delayed_count = sum(1 for t in r_tasks.values() if (t.get("delay_days") or 0) > 0)
+    delay_slip = r_delayed_count - b_delayed_count
     sign_delay = f"+{delay_slip}" if delay_slip >= 0 else str(delay_slip)
 
     lines.append(f"| Makespan | {b_ms} 稼働日 | {r_ms} 稼働日 | {sign_ms} 稼働日 |")
     lines.append(f"| タスク総数 | {b_count} | {r_count} | {sign_task} |")
-    lines.append(f"| 遅延タスク数 | {b_delayed_count} | {delayed_count} | {sign_delay} |")
+    lines.append(f"| 遅延タスク数 | {b_delayed_count} | {r_delayed_count} | {sign_delay} |")
     lines.append("")
 
-    lines.append("## 遅延タスク診断")
+    lines.append("## 遅延タスク診断 (Delayed Tasks & Diagnostics)")
     if not delayed_ids:
         lines.append("遅延タスクはありません。計画通り進行しています。")
     else:
@@ -294,13 +298,13 @@ def format_replan_markdown(replan_result: dict[str, Any]) -> str:
             lines.append(f"| {t_id} | {assignee} | {b_end} | {r_end} | {slip_str} | {p_reason_str} | {details_str} |")
 
     lines.append("")
-    lines.append("## 再計画タスク一覧")
+    lines.append("## 再計画タスク一覧 (Replanned Tasks)")
     lines.append("| タスクID | 担当者 | ステータス | 開始日 | 終了日 | 稼働日数 | 実績工数 | 残工数 | 納期 | 遅延 |")
     lines.append("| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |")
 
     sorted_r_tasks = sorted(r_tasks.items(), key=lambda item: (item[1].get("start_date", ""), item[0]))
     for t_id, t_info in sorted_r_tasks:
-        assignee = t_info.get("assigned_to", "unassigned")
+        assignee = t_info.get("assigned_to") or "unassigned"
         status = t_info.get("status", "not_started")
         s_date = t_info.get("start_date", "-")
         e_date = t_info.get("end_date", "-")
@@ -328,4 +332,3 @@ def format_replan_markdown(replan_result: dict[str, Any]) -> str:
             )
 
     return "\n".join(lines)
-
