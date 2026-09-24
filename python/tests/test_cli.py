@@ -538,6 +538,311 @@ task_progress:
         assert "[遅延: +3稼働日]" in text
 
 
+class TestLogCLI:
+    def test_log_creates_new_actuals_file_with_root_key(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        if actuals_path.exists():
+            actuals_path.unlink()
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "8.0",
+        )
+        assert result.returncode == 0
+        assert actuals_path.exists()
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        assert "actuals" in content
+        logs = content["actuals"].get("work_logs", [])
+        assert len(logs) == 1
+        assert logs[0] == {
+            "date": "2026-09-08",
+            "member_id": "alice",
+            "task_id": "task-setup",
+            "hours": 8.0,
+        }
+
+    def test_log_default_directory_data(self, tmp_path):
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        (data_dir / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (data_dir / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (data_dir / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "8.0",
+            cwd=str(tmp_path),
+        )
+        assert result.returncode == 0
+        actuals_path = data_dir / "actuals.yaml"
+        assert actuals_path.exists()
+
+    def test_log_overwrites_existing_log_for_same_day_member_task(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        actuals_path.write_text(
+            """actuals:
+  work_logs:
+    - date: 2026-09-08
+      member_id: alice
+      task_id: task-setup
+      hours: 4.0
+""",
+            encoding="utf-8",
+        )
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "6.0",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        logs = content["actuals"]["work_logs"]
+        assert len(logs) == 1
+        assert logs[0]["hours"] == 6.0
+
+    def test_log_adds_to_existing_log_with_add_flag(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        actuals_path.write_text(
+            """actuals:
+  work_logs:
+    - date: 2026-09-08
+      member_id: alice
+      task_id: task-setup
+      hours: 4.0
+""",
+            encoding="utf-8",
+        )
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "2.0",
+            "--add",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        logs = content["actuals"]["work_logs"]
+        assert len(logs) == 1
+        assert logs[0]["hours"] == 6.0
+
+    def test_log_appends_new_entry_for_different_date_or_task(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        actuals_path.write_text(
+            """actuals:
+  work_logs:
+    - date: 2026-09-08
+      member_id: alice
+      task_id: task-setup
+      hours: 4.0
+""",
+            encoding="utf-8",
+        )
+
+        result = run_cli(
+            "log",
+            "2026-09-09",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "4.0",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        logs = content["actuals"]["work_logs"]
+        assert len(logs) == 2
+        assert logs[0]["date"] == "2026-09-08"
+        assert logs[1]["date"] == "2026-09-09"
+
+    def test_log_updates_task_progress(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "8.0",
+            "--remaining", "0.0",
+            "--status", "completed",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        tp = content["actuals"].get("task_progress", [])
+        assert len(tp) == 1
+        assert tp[0] == {
+            "task_id": "task-setup",
+            "remaining_hours": 0.0,
+            "status": "completed",
+        }
+
+    def test_log_preserves_flat_actuals_structure(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        actuals_path.write_text(
+            """work_logs:
+  - date: 2026-09-08
+    member_id: alice
+    task_id: task-setup
+    hours: 4.0
+""",
+            encoding="utf-8",
+        )
+
+        result = run_cli(
+            "log",
+            "2026-09-09",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "4.0",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        assert "actuals" not in content
+        assert "work_logs" in content
+        assert len(content["work_logs"]) == 2
+
+    def test_log_rejects_unknown_member(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "nonexistent_member",
+            "--task", "task-setup",
+            "--hours", "8.0",
+        )
+        assert result.returncode == 1
+        assert "未定義のメンバ" in result.stderr
+        assert not (basic_project_files / "actuals.yaml").exists()
+
+    def test_log_rejects_unknown_task(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "nonexistent_task",
+            "--hours", "8.0",
+        )
+        assert result.returncode == 1
+        assert "未定義のタスク" in result.stderr
+        assert not (basic_project_files / "actuals.yaml").exists()
+
+    def test_log_rejects_absent_date(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (basic_project_files / "calendar.yaml").write_text(
+            """calendar:
+  workdays: [mon, tue, wed, thu, fri]
+  absences:
+    - member_id: alice
+      date: 2026-09-08
+      reason: 有給休暇
+""",
+            encoding="utf-8",
+        )
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "8.0",
+        )
+        assert result.returncode == 1
+        assert "不在" in result.stderr
+        assert not (basic_project_files / "actuals.yaml").exists()
+
+    def test_log_rejects_total_hours_exceeding_24h(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        actuals_path.write_text(
+            """actuals:
+  work_logs:
+    - date: 2026-09-08
+      member_id: alice
+      task_id: task-setup
+      hours: 20.0
+""",
+            encoding="utf-8",
+        )
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "10.0",
+            "--add",
+        )
+        assert result.returncode == 1
+        assert "24h" in result.stderr
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        assert content["actuals"]["work_logs"][0]["hours"] == 20.0
+
+    def test_log_rejects_invalid_hours_or_status(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        res1 = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "-1.0",
+        )
+        assert res1.returncode in (1, 2)
+
+        res2 = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-setup",
+            "--hours", "8.0",
+            "--remaining", "2.0",
+            "--status", "completed",
+        )
+        assert res2.returncode == 1
+        assert "completed" in res2.stderr
+
+
+
 
 
 
