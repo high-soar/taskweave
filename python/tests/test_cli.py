@@ -1243,13 +1243,31 @@ class TestApplyCLI:
         import json
         import yaml
 
-        # devops スキルを持つ bob に割り当てられるタスク
+        # Alice が複数日不在のカレンダーを設定
+        calendar_content = """calendar:
+  workdays: [mon, tue, wed, thu, fri]
+  holidays: []
+  absences:
+    - member_id: alice
+      date: '2026-09-08'
+    - member_id: alice
+      date: '2026-09-09'
+    - member_id: alice
+      date: '2026-09-10'
+    - member_id: alice
+      date: '2026-09-11'
+    - member_id: alice
+      date: '2026-09-12'
+"""
+        (basic_project_files / "calendar.yaml").write_text(calendar_content, encoding="utf-8")
+
+        # Alice と Bob の双方が担当可能な backend タスク (納期 2026-09-09)
         tasks_content = """tasks:
-  - id: task-infra
-    title: インフラ構築
+  - id: task-backend
+    title: バックエンド開発
     estimate_hours: 8.0
-    required_skills: [devops]
-    assigned_to: bob
+    required_skills: [backend]
+    deadline: '2026-09-09'
 """
         tasks_file = basic_project_files / "tasks.yaml"
         tasks_file.write_text(tasks_content, encoding="utf-8")
@@ -1261,7 +1279,7 @@ class TestApplyCLI:
                 "status": "OPTIMAL",
                 "makespan_workdays": 1,
                 "tasks": {
-                    "task-infra": {
+                    "task-backend": {
                         "assigned_to": "alice",
                         "start_date": "2026-09-08",
                         "end_date": "2026-09-08",
@@ -1294,6 +1312,110 @@ class TestApplyCLI:
         result = run_cli("apply", str(basic_project_files), "--as-of", "2026-09-09")
         assert result.returncode == 1
         assert "tasks.yaml" in result.stderr
+
+    def test_apply_solver_infeasible_status_fails(self, basic_project_files, monkeypatch, capsys):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        import sys
+        import taskweave.cli
+        import taskweave.replan
+
+        replan_mod = sys.modules["taskweave.replan"]
+        monkeypatch.setattr(
+            replan_mod,
+            "replan",
+            lambda *args, **kwargs: {"replanned": {"status": "INFEASIBLE"}, "diff": {}},
+        )
+
+        ret = taskweave.cli.main(["apply", str(basic_project_files), "--as-of", "2026-09-09"])
+        assert ret == 1
+        captured = capsys.readouterr()
+        assert "再計画の計算が完了しませんでした (ステータス: INFEASIBLE)" in captured.err
+
+    def test_apply_output_new_path_uses_existing_dir_baseline(self, basic_project_files, tmp_path):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        dir_baseline = basic_project_files / "baseline.json"
+        dir_baseline.write_text(
+            json.dumps({
+                "status": "OPTIMAL",
+                "makespan_workdays": 5,
+                "tasks": {
+                    "task-setup": {
+                        "assigned_to": "alice",
+                        "start_date": "2026-09-08",
+                        "end_date": "2026-09-08",
+                        "workdays_count": 1,
+                        "estimate_hours": 8.0,
+                        "delay_days": 0,
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        new_out_path = tmp_path / "custom" / "baseline.json"
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--output",
+            str(new_out_path),
+        )
+        assert result.returncode == 0
+        assert "Makespan: 5 workdays ->" in result.stdout
+        assert new_out_path.exists()
+
+    def test_apply_update_tasks_with_no_backup(self, basic_project_files):
+        tasks_content = """tasks:
+  - id: task-api
+    title: API開発
+    estimate_hours: 16.0
+    required_skills: [backend]
+    assigned_to: alice
+    deadline: '2026-09-08'
+"""
+        tasks_file = basic_project_files / "tasks.yaml"
+        tasks_file.write_text(tasks_content, encoding="utf-8")
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-08",
+            "--update-tasks",
+            "--no-backup",
+        )
+        assert result.returncode == 0
+        assert not (basic_project_files / "tasks.yaml.bak").exists()
+        assert not (basic_project_files / "baseline.json.bak").exists()
+
+    def test_apply_update_tasks_no_actual_changes_suppressed(self, basic_project_files):
+        # 納期が十分先で、再計画でも変更不要なタスク原本
+        tasks_content = """tasks:
+  - id: task-setup
+    title: 環境構築
+    estimate_hours: 8.0
+    required_skills: [backend]
+    assigned_to: alice
+    deadline: '2026-09-30'
+"""
+        tasks_file = basic_project_files / "tasks.yaml"
+        tasks_file.write_text(tasks_content, encoding="utf-8")
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-08",
+            "--update-tasks",
+        )
+        assert result.returncode == 0
+        assert "tasks.yaml に更新対象の推奨・再割当はありませんでした" in result.stdout
+
 
 
 
