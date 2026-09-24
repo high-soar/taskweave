@@ -5,7 +5,7 @@ description: 原本初期計画コマンド (taskweave plan)、可視化出力 (
 tags: [cli, reporting, mermaid, markdown, plan, log, apply, milestone-4]
 status: implemented
 issues: [40, 41, 42, 43]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-24T23:03:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-24T23:18:00Z }
 verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 ---
 
@@ -149,9 +149,31 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 
 #### ベースライン確定・原本更新 (`taskweave apply` - Issue #43)
 
-- **FR-10 (`taskweave apply` コマンド構文)**:
-  - 構文: `taskweave apply [directory] --as-of <date>`
-  - 再計画結果を確定し、プロジェクトの公式なベースラインファイル（`baseline.json`）を安全に更新・保存すること。
+- **FR-10 (`taskweave apply` コマンド構文と更新仕様)**:
+  - 基本構文: `taskweave apply [directory] --as-of <date> [--baseline <path>] [--output <path>] [--no-backup] [--dry-run] [--update-tasks]`
+  - 引数仕様:
+    - `[directory]`: 原本 YAML ファイル群（`members.yaml`, `tasks.yaml`, `calendar.yaml`、および `actuals.yaml`）が配置されたディレクトリ（任意、デフォルト: `data`）。
+    - `--as-of <date>`: 起算日（`YYYY-MM-DD` 形式、必須）。
+    - `--baseline <path>`: 比較元の既存ベースライン計画 JSON ファイルのパス（任意）。省略時は `--output` で指定されたファイル、または `<directory>/baseline.json` が存在すれば読み込む。存在しない場合は動的に初期計画を計算して差分を算出。
+    - `--output <path>`: 更新先ベースライン計画 JSON ファイルのパス（任意、省略時は `--baseline` のパス、または `<directory>/baseline.json`）。
+    - `--no-backup`: 既存のベースラインファイルが存在する場合のバックアップ（`<output>.bak`）作成を無効化する（任意、デフォルトはバックアップを作成）。
+    - `--dry-run`: 差分サマリと適用予定の変更内容を表示するのみで、ファイルへの書き込みを行わないフラグ（任意）。
+    - `--update-tasks`: 再計画による納期緩和推奨（recommendations）および担当者変更（reassignments）を原本 `tasks.yaml` に反映するフラグ（任意）。
+  - 処理フローと安全性 (AC-1, AC-2, AC-4):
+    1. 事前バリデーション: `validate_directory` でディレクトリ内の原本 YAML を検証。構文または論理整合性エラーがあれば stderr に出力し終了コード `1` で中断する。
+    2. 再計画実行: `replan(data_dir, as_of_date, baseline_schedule)` を呼び出し、再計画スケジュールと差分（`diff`）を算出する。ステータスが OPTIMAL / FEASIBLE でない場合は stderr に出力し終了コード `1` で中断する。
+    3. 差分サマリ表示 (AC-2): ベースラインからの Makespan 変化（スリップ日数）、遅延タスク一覧、納期緩和推奨（存在する場合）を標準出力に表示する。
+    4. `--dry-run` 判定: `--dry-run` が指定されている場合、ファイル更新を行わず `[Dry Run] ベースラインの更新はスキップされました。` を出力して終了コード `0` で正常終了する。
+    5. バックアップ作成と安全な書き込み (AC-4):
+       - 保存先ベースラインファイルが既に存在し、`--no-backup` が指定されていない場合、`<output>.bak` としてバックアップを保存する。
+       - 再計画結果（`result["replanned"]`）を JSON 形式で一時ファイルに書き出し、アトミックに保存先パスへ置き換える。
+    6. 原本 YAML への反映支援 (AC-3):
+       - `--update-tasks` が指定されている場合:
+         - `tasks.yaml` のバックアップ（`tasks.yaml.bak`）を作成（`--no-backup` 未指定時）。
+         - recommendations に基づき、該当タスクの `deadline` を推奨値に更新する。
+         - 再計画で担当者が変更されたタスクの `assigned_to` を更新する。
+         - 更新された `tasks.yaml` を保存し、原本スキーマ検証で整合性を確認する。
+    7. 完了メッセージ出力: ベースライン計画の保存完了、バックアップ作成、および原本更新（実施時）のメッセージを標準出力に表示する。
 
 ---
 
@@ -341,9 +363,62 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
   - 終了コード `0` で終了する。
   - 更新後の `actuals.yaml` もフラット形式のまま維持され、既存の構造が崩れない。
 
+### シナリオ 16: `taskweave apply` による新規ベースライン計画の生成 (AC-1, AC-2)
+
+- **前提 (Given)**: 有効な原本ディレクトリ `examples/basic` が存在する。
+- **操作 (When)**: `taskweave apply examples/basic --as-of 2026-09-09 --output <tmp>/baseline.json` を実行する。
+- **期待結果 (Then)**:
+  - 終了コード `0` で終了する。
+  - 標準出力に変更前後のサマリ差分（Makespan, 遅延タスクなど）およびベースライン保存メッセージが表示される。
+  - `<tmp>/baseline.json` が生成され、有効な計画 JSON が保存されている。
+
+### シナリオ 17: 既存ベースラインがある場合のバックアップ作成と安全な更新 (AC-1, AC-4)
+
+- **前提 (Given)**: 出力先に既存の `baseline.json` が存在する。
+- **操作 (When)**: `taskweave apply examples/basic --as-of 2026-09-09 --output <tmp>/baseline.json` を再実行する。
+- **期待結果 (Then)**:
+  - 終了コード `0` で終了する。
+  - `<tmp>/baseline.json.bak` に古いベースラインがバックアップされる。
+  - `<tmp>/baseline.json` に新しい再計画スケジュールが安全に上書き保存される。
+
+### シナリオ 18: `--no-backup` によるバックアップ抑制 (AC-4)
+
+- **前提 (Given)**: 出力先に既存の `baseline.json` が存在する。
+- **操作 (When)**: `taskweave apply examples/basic --as-of 2026-09-09 --output <tmp>/baseline.json --no-backup` を実行する。
+- **期待結果 (Then)**:
+  - 終了コード `0` で終了する。
+  - バックアップファイル（`.bak`）は作成されず、`<tmp>/baseline.json` のみが更新される。
+
+### シナリオ 19: `--dry-run` による差分確認とファイル保存スキップ (AC-2)
+
+- **前提 (Given)**: 有効な原本ディレクトリが存在する。
+- **操作 (When)**: `taskweave apply examples/basic --as-of 2026-09-09 --output <tmp>/baseline.json --dry-run` を実行する。
+- **期待結果 (Then)**:
+  - 終了コード `0` で終了する。
+  - サマリ差分が表示され、末尾に `[Dry Run] ベースラインの更新はスキップされました。` メッセージが表示される。
+  - `<tmp>/baseline.json` は生成・変更されない。
+
+### シナリオ 20: `--update-tasks` による原本 `tasks.yaml` への納期・担当者反映 (AC-3)
+
+- **前提 (Given)**: 納期超過（遅延）や担当者再割当が発生する再計画シナリオ。
+- **操作 (When)**: `taskweave apply <dir> --as-of 2026-09-09 --update-tasks` を実行する。
+- **期待結果 (Then)**:
+  - 終了コード `0` で終了する。
+  - `tasks.yaml.bak` が作成される（`--no-backup` 未指定時）。
+  - `tasks.yaml` 内の該当タスクの `deadline` が推奨値（`recommended_deadline`）に更新され、再割当されたタスクの `assigned_to` が更新される。
+  - 更新後の `tasks.yaml` が YAML 原本スキーマ検証を通過する。
+
+### シナリオ 21: 原本バリデーションエラー時の処理中断と保護 (AC-1)
+
+- **前提 (Given)**: `tasks.yaml` に循環依存または構文エラーがあるディレクトリ。
+- **操作 (When)**: `taskweave apply <invalid_dir> --as-of 2026-09-09` を実行する。
+- **期待結果 (Then)**:
+  - 終了コード `1` で中断する。
+  - 標準エラー出力に対象ファイル・行番号・エラー内容が出力される。
+  - ベースラインファイルや `tasks.yaml` は一切生成・変更されない。
+
 ---
 
 ## 5. 制約事項・スコープ外 (Out of Scope)
 
-- **再計画結果のベースライン確定・原本更新（`taskweave apply`）**: Issue #43 にて対応。
 - **複数メンバによる同一タスクの同時分担（ペアプロ等）**: YAGNI 原則に基づき将来検討。

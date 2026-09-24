@@ -1063,6 +1063,240 @@ class TestVisualReportingCLI:
         assert "# スケジュール再計画レポート" in content
 
 
+class TestApplyCLI:
+    """taskweave apply サブコマンドのテスト (AC-1 ~ AC-5)."""
+
+    def test_apply_help(self):
+        result = run_cli("apply", "--help")
+        assert result.returncode == 0
+        assert "--as-of" in result.stdout
+        assert "--baseline" in result.stdout
+        assert "--output" in result.stdout
+        assert "--no-backup" in result.stdout
+        assert "--dry-run" in result.stdout
+        assert "--update-tasks" in result.stdout
+
+    def test_apply_new_baseline_creation(self, basic_project_files, tmp_path):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        out_baseline = tmp_path / "baseline.json"
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--output",
+            str(out_baseline),
+        )
+        assert result.returncode == 0
+        assert "Makespan:" in result.stdout
+        assert "ベースライン計画を更新しました" in result.stdout
+        assert out_baseline.exists()
+
+        data = json.loads(out_baseline.read_text(encoding="utf-8"))
+        assert data["status"] in ("OPTIMAL", "FEASIBLE")
+        assert "makespan_workdays" in data
+        assert "tasks" in data
+
+    def test_apply_default_output_path(self, basic_project_files):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        default_baseline = basic_project_files / "baseline.json"
+        if default_baseline.exists():
+            default_baseline.unlink()
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+        )
+        assert result.returncode == 0
+        assert default_baseline.exists()
+        data = json.loads(default_baseline.read_text(encoding="utf-8"))
+        assert data["status"] in ("OPTIMAL", "FEASIBLE")
+
+    def test_apply_backup_existing_baseline(self, basic_project_files, tmp_path):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        out_baseline = tmp_path / "baseline.json"
+        out_baseline.write_text(json.dumps({"status": "ORIGINAL_OLD"}), encoding="utf-8")
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--output",
+            str(out_baseline),
+        )
+        assert result.returncode == 0
+        backup_file = tmp_path / "baseline.json.bak"
+        assert backup_file.exists()
+        bak_data = json.loads(backup_file.read_text(encoding="utf-8"))
+        assert bak_data.get("status") == "ORIGINAL_OLD"
+
+        new_data = json.loads(out_baseline.read_text(encoding="utf-8"))
+        assert new_data["status"] in ("OPTIMAL", "FEASIBLE")
+
+    def test_apply_no_backup_flag(self, basic_project_files, tmp_path):
+        import json
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        out_baseline = tmp_path / "baseline.json"
+        out_baseline.write_text(json.dumps({"status": "ORIGINAL_OLD"}), encoding="utf-8")
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--output",
+            str(out_baseline),
+            "--no-backup",
+        )
+        assert result.returncode == 0
+        backup_file = tmp_path / "baseline.json.bak"
+        assert not backup_file.exists()
+
+    def test_apply_dry_run(self, basic_project_files, tmp_path):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        out_baseline = tmp_path / "baseline.json"
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--output",
+            str(out_baseline),
+            "--dry-run",
+        )
+        assert result.returncode == 0
+        assert "[Dry Run] ベースラインの更新はスキップされました" in result.stdout
+        assert not out_baseline.exists()
+
+    def test_apply_update_tasks_recommendations(self, basic_project_files, tmp_path):
+        import yaml
+
+        # 納期が厳しく遅延・納期緩和推奨が発生するタスク原本を作成
+        tasks_content = """tasks:
+  - id: task-api
+    title: API開発
+    estimate_hours: 16.0
+    required_skills: [backend]
+    assigned_to: alice
+    deadline: '2026-09-08'
+"""
+        tasks_file = basic_project_files / "tasks.yaml"
+        tasks_file.write_text(tasks_content, encoding="utf-8")
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-08",
+            "--update-tasks",
+        )
+        assert result.returncode == 0
+        assert "tasks.yaml を更新しました" in result.stdout
+
+        tasks_bak = basic_project_files / "tasks.yaml.bak"
+        assert tasks_bak.exists()
+
+        updated_tasks_raw = yaml.safe_load(tasks_file.read_text(encoding="utf-8"))
+        updated_tasks = updated_tasks_raw.get("tasks", [])
+        task_api = next(t for t in updated_tasks if t["id"] == "task-api")
+        # 推奨納期に緩和されていること (2026-09-08 より後)
+        assert str(task_api.get("deadline")) > "2026-09-08"
+
+    def test_apply_without_update_tasks_keeps_tasks_yaml_untouched(self, basic_project_files):
+        import yaml
+
+        tasks_content = """tasks:
+  - id: task-api
+    title: API開発
+    estimate_hours: 16.0
+    required_skills: [backend]
+    assigned_to: alice
+    deadline: '2026-09-08'
+"""
+        tasks_file = basic_project_files / "tasks.yaml"
+        tasks_file.write_text(tasks_content, encoding="utf-8")
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-08",
+        )
+        assert result.returncode == 0
+        assert not (basic_project_files / "tasks.yaml.bak").exists()
+        raw = yaml.safe_load(tasks_file.read_text(encoding="utf-8"))
+        assert raw["tasks"][0]["deadline"] == "2026-09-08"
+
+    def test_apply_update_tasks_reassignment(self, basic_project_files):
+        import json
+        import yaml
+
+        # devops スキルを持つ bob に割り当てられるタスク
+        tasks_content = """tasks:
+  - id: task-infra
+    title: インフラ構築
+    estimate_hours: 8.0
+    required_skills: [devops]
+    assigned_to: bob
+"""
+        tasks_file = basic_project_files / "tasks.yaml"
+        tasks_file.write_text(tasks_content, encoding="utf-8")
+
+        # 既存 baseline では alice に割り当てられていたとする
+        baseline_file = basic_project_files / "baseline.json"
+        baseline_file.write_text(
+            json.dumps({
+                "status": "OPTIMAL",
+                "makespan_workdays": 1,
+                "tasks": {
+                    "task-infra": {
+                        "assigned_to": "alice",
+                        "start_date": "2026-09-08",
+                        "end_date": "2026-09-08",
+                        "workdays_count": 1,
+                        "estimate_hours": 8.0,
+                        "delay_days": 0,
+                    }
+                },
+            }),
+            encoding="utf-8",
+        )
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-08",
+            "--baseline",
+            str(baseline_file),
+            "--update-tasks",
+        )
+        assert result.returncode == 0
+        assert "tasks.yaml を更新しました" in result.stdout
+
+        raw = yaml.safe_load(tasks_file.read_text(encoding="utf-8"))
+        assert raw["tasks"][0]["assigned_to"] == "bob"
+
+    def test_apply_validation_error_fails(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text("invalid: yaml: syntax: [", encoding="utf-8")
+        result = run_cli("apply", str(basic_project_files), "--as-of", "2026-09-09")
+        assert result.returncode == 1
+        assert "tasks.yaml" in result.stderr
+
+
+
 
 
 
