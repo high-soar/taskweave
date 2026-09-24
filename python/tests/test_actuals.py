@@ -104,3 +104,60 @@ def test_record_work_log_non_dict_actuals(project_dir: Path):
     )
     assert not success
     assert any("オブジェクトが必須です" in e for e in errors)
+
+
+def test_record_work_log_success_new_file(project_dir: Path):
+    actuals_path = project_dir / "actuals.yaml"
+    assert not actuals_path.exists()
+
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=8.0,
+    )
+    assert success
+    assert not errors
+    assert actuals_path.exists()
+
+    content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+    assert "actuals" in content
+    assert len(content["actuals"]["work_logs"]) == 1
+    assert content["actuals"]["work_logs"][0] == {
+        "date": "2026-09-08",
+        "member_id": "alice",
+        "task_id": "task-api",
+        "hours": 8.0,
+    }
+
+
+def test_record_work_log_success_add_and_progress_auto_complete(project_dir: Path):
+    # 初回記録
+    record_work_log(
+        dir_path=project_dir,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=4.0,
+    )
+    # 加算記録 & completed 指定
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=12.0,
+        status="completed",
+        add=True,
+    )
+    assert success
+    assert not errors
+
+    content = yaml.safe_load((project_dir / "actuals.yaml").read_text(encoding="utf-8"))
+    assert content["actuals"]["work_logs"][0]["hours"] == 16.0
+    tp = content["actuals"]["task_progress"][0]
+    assert tp["task_id"] == "task-api"
+    assert tp["remaining_hours"] == 0.0
+    assert tp["status"] == "completed"
+

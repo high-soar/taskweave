@@ -113,8 +113,12 @@ def record_work_log(
         elif not isinstance(raw, dict):
             return False, ["actuals: オブジェクトが必須です"]
 
-        has_root_key = "actuals" in raw and isinstance(raw["actuals"], dict)
-        actuals_dict = copy.deepcopy(raw["actuals"] if has_root_key else raw)
+        if not raw:
+            has_root_key = True
+            actuals_dict = {}
+        else:
+            has_root_key = "actuals" in raw and isinstance(raw["actuals"], dict)
+            actuals_dict = copy.deepcopy(raw["actuals"] if has_root_key else raw)
 
     # 4. メモリ上での稼働ログ更新
     work_logs = actuals_dict.setdefault("work_logs", [])
@@ -176,6 +180,12 @@ def record_work_log(
                 target_tp["remaining_hours"] = 0.0
             elif target_tp.get("remaining_hours") == 0.0 and status is None:
                 target_tp["status"] = "completed"
+            elif (
+                target_tp.get("remaining_hours", 0.0) > 0.0
+                and status is None
+                and target_tp.get("status") == "completed"
+            ):
+                target_tp["status"] = "in_progress"
         else:
             task_info = next(
                 (t for t in parsed_masters.get("tasks.yaml", []) if t.get("id") == task_id),
@@ -235,10 +245,12 @@ def record_work_log(
     if not logical_res.valid:
         return False, logical_res.errors
 
-    # 7. ファイルへの書き込み
+    # 7. ファイルへの書き込み (アトミック書き込み)
     try:
         actuals_path.parent.mkdir(parents=True, exist_ok=True)
-        actuals_path.write_text(yaml_str, encoding="utf-8")
+        tmp_path = actuals_path.with_name(f"{actuals_path.name}.tmp.{datetime.datetime.now().timestamp()}")
+        tmp_path.write_text(yaml_str, encoding="utf-8")
+        tmp_path.replace(actuals_path)
     except Exception as err:
         return False, [f"actuals.yaml 書き込み失敗: {err}"]
 

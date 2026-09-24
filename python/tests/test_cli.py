@@ -902,6 +902,84 @@ class TestLogCLI:
         assert content2["actuals"]["task_progress"][0]["status"] == "completed"
         assert content2["actuals"]["task_progress"][0]["remaining_hours"] == 0.0
 
+    def test_log_rejects_multiple_members_on_same_task(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        actuals_path.write_text(
+            """actuals:
+  work_logs:
+    - date: 2026-09-08
+      member_id: alice
+      task_id: task-api
+      hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        result = run_cli(
+            "log",
+            "2026-09-09",
+            str(basic_project_files),
+            "--member", "bob",
+            "--task", "task-api",
+            "--hours", "4.0",
+        )
+        assert result.returncode == 1
+        assert "1タスク1担当者" in result.stderr or "複数の担当メンバ" in result.stderr
+
+    def test_log_completed_task_reopened_with_remaining_hours_auto_transitions_to_in_progress(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        actuals_path.write_text(
+            """actuals:
+  work_logs:
+    - date: 2026-09-08
+      member_id: alice
+      task_id: task-api
+      hours: 16.0
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 0.0
+      status: completed
+""",
+            encoding="utf-8",
+        )
+        result = run_cli(
+            "log",
+            "2026-09-09",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "2.0",
+            "--remaining", "2.0",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        tp = content["actuals"]["task_progress"][0]
+        assert tp["status"] == "in_progress"
+        assert tp["remaining_hours"] == 2.0
+
+    def test_log_empty_actuals_file_preserves_root_key(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+        actuals_path.write_text("", encoding="utf-8")
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "8.0",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        assert "actuals" in content
+        assert "work_logs" in content["actuals"]
+
 
 
 
