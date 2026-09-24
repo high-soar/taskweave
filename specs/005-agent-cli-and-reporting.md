@@ -5,7 +5,7 @@ description: 原本初期計画コマンド (taskweave plan)、可視化出力 (
 tags: [cli, reporting, mermaid, markdown, plan, log, apply, milestone-4]
 status: implemented
 issues: [40, 41, 42, 43]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-21T11:30:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-24T16:47:00Z }
 verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 ---
 
@@ -88,11 +88,32 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 
 #### 実績記録インターフェース (`taskweave log` - Issue #42)
 
-- **FR-9 (`taskweave log` コマンド構文)**:
-  - 構文: `taskweave log <date> --member <id> --task <id> --hours <h> [--remaining <h>] [--status <status>] [directory]`
-  - `actuals.yaml` の `work_logs` に稼働ログを追記または更新し、オプション指定時は `task_progress` も更新すること。
-  - 新規作成時は Issue #38 合意方針に従い `actuals:` ルートキー付き形式を推奨デフォルトとし、既存ファイルが存在する場合はその構造を踏襲すること。
-  - メンバ不在日での作業記録や未定義タスク参照などの論理違反を事前に検証し不正を防止すること。
+- **FR-9 (`taskweave log` コマンド構文と更新仕様)**:
+  - 基本構文: `taskweave log <date> --member <id> --task <id> --hours <h> [--remaining <h>] [--status <status>] [--add] [directory]`
+  - 引数仕様:
+    - `<date>`: 作業日（`YYYY-MM-DD` 形式、必須位置引数）。
+    - `--member <id>`: 実績を記録するメンバー ID（必須）。
+    - `--task <id>`: 実績を記録するタスク ID（必須）。
+    - `--hours <h>`: 稼働工数（0.1 以上の 0.1 時間刻み正の数値、必須）。
+    - `--remaining <h>`: 残工数（0.0 以上の 0.1 時間刻み数値、任意）。
+    - `--status <status>`: タスク進捗状態（`not_started`, `in_progress`, `completed`、任意）。
+    - `--add`: 同一日・同メンバ・同タスクの既存ログがある場合に上書きではなく工数を加算するフラグ（任意、デフォルトは上書き更新）。
+    - `[directory]`: 原本 YAML ファイル群が配置されたディレクトリ（任意、デフォルト: `data`）。
+  - 事前検証と安全性 (AC-3):
+    - コマンド実行時、原本データ（`members.yaml`, `tasks.yaml`, `calendar.yaml`）および更新対象の実績データをメモリ上で結合し、原本スキーマ検証および論理整合性検証（`validate_logical_integrity`）を事前実行する。
+    - 未定義メンバー ID、未定義タスク ID、カレンダー不在日（absences）での稼働記録、1日 24 時間超過、同一タスクへの複数メンバー割当、および不正な工数フォーマット等の違反を検知した場合、ファイル書き込みを行わずに標準エラー出力（`stderr`）にエラーメッセージを出力し、終了コード `1` で中断する。
+  - ファイル自動作成と構造維持 (AC-4):
+    - 指定ディレクトリに `actuals.yaml` が存在しない場合、`actuals:` ルートキー付き構造（Issue #38 合意方針）でファイルを自動新規作成する。
+    - 既存の `actuals.yaml` が存在する場合、ルートキー付き（`actuals:`）またはフラット形式の構造を判別してその階層を維持して更新・保存する。
+  - 稼働実績 (`work_logs`) の更新規則 (AC-1):
+    - 同一の `date`, `member_id`, `task_id` を持つ既存エントリが存在する場合:
+      - `--add` 指定時: 既存の `hours` に指定工数を加算（`round(existing + hours, 1)`）。
+      - `--add` 未指定時: 既存の `hours` を指定工数で上書き更新。
+    - 該当エントリが存在しない場合、新しいログエントリを `work_logs` リストの末尾に追記する。
+  - 進捗ステータス (`task_progress`) の更新規則 (AC-2):
+    - `--remaining` または `--status` の少なくとも一方が指定された場合に `task_progress` を更新する。
+    - 同一 `task_id` のエントリが存在する場合、指定されたフィールド（`remaining_hours`, `status`）を更新する。
+    - 該当エントリが存在しない場合、新規エントリを作成して `task_progress` リストに追加する（未指定のフィールドはタスク見積りやログ合計時間から自動導出またはデフォルト補完）。
 
 #### ベースライン確定・原本更新 (`taskweave apply` - Issue #43)
 
@@ -204,11 +225,54 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
   - 終了コード `0` で終了する（ソフト制約によるペナルティ最小化解）。
   - 出力テキストまたは JSON に、遅延タスク（`delay_days > 0`）および納期緩和推奨（recommendations）が含まれる。
 
+### シナリオ 6: `taskweave log` による新規 `actuals.yaml` 自動作成と実績記録 (AC-1, AC-4, AC-5)
+
+- **前提 (Given)**: `actuals.yaml` がまだ存在しない原本ディレクトリ（例: `data` または指定ディレクトリ）。
+- **操作 (When)**: `taskweave log 2026-09-08 --member alice --task task-setup --hours 8.0` を実行する。
+- **期待結果 (Then)**:
+  - 終了コード `0` で終了する。
+  - `actuals.yaml` が自動作成され、ルートキー `actuals:` 配下に `work_logs` リスト（日付 `2026-09-08`, メンバ `alice`, タスク `task-setup`, 工数 `8.0`）が書き込まれる。
+
+### シナリオ 7: 同一日・同メンバ・同タスクのログ更新（上書きおよび `--add` による加算） (AC-1)
+
+- **前提 (Given)**: すでに `date: 2026-09-08`, `member_id: alice`, `task_id: task-setup`, `hours: 4.0` が記録されている。
+- **操作 (When 1 - 上書き)**: `taskweave log 2026-09-08 --member alice --task task-setup --hours 6.0` を実行する。
+- **期待結果 (Then 1)**: `work_logs` 内の該当エントリの工数が `6.0` に上書き更新される（エントリ数は増えない）。
+- **操作 (When 2 - 加算)**: `taskweave log 2026-09-08 --member alice --task task-setup --hours 2.0 --add` を実行する。
+- **期待結果 (Then 2)**: `work_logs` 内の該当エントリの工数が `8.0` (`6.0 + 2.0`) に加算更新される。
+
+### シナリオ 8: `--remaining` および `--status` による `task_progress` 同時更新 (AC-2)
+
+- **前提 (Given)**: 有効な原本ディレクトリ。
+- **操作 (When)**: `taskweave log 2026-09-08 --member alice --task task-setup --hours 8.0 --remaining 0.0 --status completed` を実行する。
+- **期待結果 (Then)**:
+  - 終了コード `0` で終了する。
+  - `work_logs` に工数 `8.0` が記録される。
+  - `task_progress` に `task_id: task-setup`, `remaining_hours: 0.0`, `status: completed` が記録または更新される。
+
+### シナリオ 9: 原本データ・実績データの論理違反による記録防止 (AC-3)
+
+- **前提 (Given)**: 未定義のメンバー ID、未定義のタスク ID、あるいは `calendar.yaml` でメンバが不在（absent）として登録されている日。
+- **操作 (When)**:
+  - 不在日での記録: `taskweave log 2026-09-09 --member alice --task task-setup --hours 8.0`
+  - または未定義メンバでの記録: `taskweave log 2026-09-08 --member unknown --task task-setup --hours 8.0`
+- **期待結果 (Then)**:
+  - 終了コード `1` で中断する。
+  - 標準エラー出力（`stderr`）に論理違反の内容（未定義メンバ、不在日での実績記録等）が出力される。
+  - `actuals.yaml` への書き込みは行われない（ファイルは変更されない）。
+
+### シナリオ 10: 既存 `actuals.yaml` のルートキー構造維持 (AC-4)
+
+- **前提 (Given)**: フラット形式（`actuals:` ルートキーなしで `work_logs:` がトップレベルにある）の既存 `actuals.yaml`。
+- **操作 (When)**: `taskweave log 2026-09-09 --member alice --task task-setup --hours 4.0` を実行する。
+- **期待結果 (Then)**:
+  - 終了コード `0` で終了する。
+  - 更新後の `actuals.yaml` もフラット形式のまま維持され、既存の構造が崩れない。
+
 ---
 
 ## 5. 制約事項・スコープ外 (Out of Scope)
 
 - **Mermaid ガントチャート出力および Markdown テーブル出力**: Issue #41 にて対応。
-- **実績工数の追記・進捗更新（`taskweave log`）**: Issue #42 にて対応。
 - **再計画結果のベースライン確定・原本更新（`taskweave apply`）**: Issue #43 にて対応。
 - **複数メンバによる同一タスクの同時分担（ペアプロ等）**: YAGNI 原則に基づき将来検討。
