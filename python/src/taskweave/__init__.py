@@ -13,6 +13,12 @@ from taskweave.engine import (
     solve_schedule,
 )
 from taskweave.replan import replan
+from taskweave.reporting import (
+    format_plan_markdown,
+    format_plan_mermaid,
+    format_replan_markdown,
+    format_replan_mermaid,
+)
 
 __all__ = [
     "WEEKDAY_MAP",
@@ -20,6 +26,10 @@ __all__ = [
     "compute_schedule_diff",
     "count_workdays_between",
     "format_diff_summary",
+    "format_plan_markdown",
+    "format_plan_mermaid",
+    "format_replan_markdown",
+    "format_replan_mermaid",
     "load_project_data",
     "load_yaml",
     "replan",
