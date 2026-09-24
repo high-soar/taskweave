@@ -90,18 +90,14 @@ To avoid configuration drift and duplication:
 
 ### E. Adding or Modifying Repository Git Hooks
 
-1. **Target Files**:
-   - `.githooks/<hook-name>` for tracked hook scripts.
-   - `package.json` for the `prepare` lifecycle entry.
-   - `scripts/setup-git-hooks.mjs` for local hook-path activation.
-2. **Action Checklist**:
-   - Keep the shared hook script under `.githooks/`; do not use `.git/hooks/` as the source of truth.
-   - Configure each clone with `git config --local core.hooksPath .githooks` through an idempotent setup script.
-   - Preserve the executable bit on every hook script.
-   - Make the setup script skip cleanly when it is run outside a Git repository.
+1. **Policy**:
+   - Quality checks are centralized in GitHub Actions CI to keep developer and agent iterations fast.
+   - Heavy checks (such as full test suites) must NOT be placed in `pre-push` hooks.
+2. **If adding lightweight hooks**:
+   - Place shared scripts in `.githooks/<hook-name>` and maintain `scripts/setup-git-hooks.mjs`.
+   - Ensure `setup-git-hooks.mjs` cleanly unsets `core.hooksPath` when no active hooks exist.
 3. **Verification**:
-   - Run `npm run prepare` and confirm `git config --local --get core.hooksPath` returns `.githooks`.
-   - Run `git hook run <hook-name>` and confirm the hook's quality check succeeds.
+   - Run `npm run prepare` and confirm expected hook behavior or clean deactivation.
 
 ## 3. Verification Checklist
 
@@ -110,4 +106,4 @@ Whenever configuration changes are made:
 - [ ] **JSON Syntax**: Ensure all `.json` files (`devcontainer.json`, `.agents/skills.json`, etc.) are valid JSON.
 - [ ] **Markdown Links**: Check that links between files (e.g. `[AGENTS.md](../AGENTS.md)`) resolve correctly.
 - [ ] **No Duplicate Originals**: Confirm no redundant skill files exist under `.agents/skills/` (everything lives in `.github/skills/`).
-- [ ] **Git Hooks**: Confirm tracked hooks live under `.githooks/`, retain executable permissions, and are activated through the local `core.hooksPath` setting.
+- [ ] **Git Hooks**: Confirm tracked hooks live under `.githooks/` if configured, or `core.hooksPath` is cleanly disabled when no hooks exist.

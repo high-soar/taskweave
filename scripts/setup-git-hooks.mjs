@@ -14,7 +14,15 @@ try {
 }
 
 if (!existsSync(join(repositoryRoot, ".githooks", "pre-push"))) {
-  console.log("No repository-managed Git hooks found; skipping setup.");
+  try {
+    execFileSync("git", ["config", "--local", "--unset", "core.hooksPath"], {
+      cwd: repositoryRoot,
+      stdio: "ignore",
+    });
+  } catch {
+    // ignore if not set
+  }
+  console.log("No repository-managed Git hooks found; hooks disabled.");
   process.exit(0);
 }
 
