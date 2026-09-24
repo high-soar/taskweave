@@ -101,10 +101,14 @@ This skill guides AI agents and developers in applying **Spec-Driven Development
    - The subagent performs a zero-context critical review and posts comments with `[MUST]`, `[SHOULD]`, `Why`, and `Alternative` via `gh pr comment`.
 3. **Address Review Feedback**:
    - Inspect review comments (`[R1]`, `[R2]`...).
-   - Fix all `[MUST]` and `[SHOULD]` items in code/tests.
-   - Commit, push, and reply to each `[Rx]` in the PR comments.
-4. **Handoff to Human Review**:
-   - Once AI pre-review points are resolved and CI passes, notify the human developer for final review, approval, and merge.
+   - Fix all `[MUST]` and `[SHOULD]` items in code and tests.
+   - For deferred items (e.g., non-blocking refactoring, future improvements), **always file a dedicated GitHub Issue** to track it in the backlog, and link the issue number in the PR reply comment.
+   - Commit, push, and reply to each `[Rx]` in the PR comments following the standard response format (policy, reason, commit, test result, remaining risk).
+4. **Invoke Re-review & Verify Resolution**:
+   - Invoke `pr-reviewer` again to perform a re-review of the updated diff.
+   - Verify that all review items are marked as `RESOLVED` (fixed or properly tracked via an open GitHub Issue). If any `UNRESOLVED` items remain, repeat the fix/issue cycle.
+5. **Handoff to Human Review**:
+   - Once all items are `RESOLVED` and CI passes, notify the human developer for final review, approval, and merge.
 
 ---
 
@@ -118,3 +122,5 @@ This skill guides AI agents and developers in applying **Spec-Driven Development
 - [ ] All quality checks (`format:check`, `lint`, `test`, `typecheck`) pass without errors (DoD satisfied).
 - [ ] PR was created and reviewed by independent `pr-reviewer` subagent.
 - [ ] All `[MUST]` and `[SHOULD]` review items are addressed and answered in PR comments.
+- [ ] Any deferred review items have been filed as dedicated GitHub Issues and linked in PR comments.
+- [ ] Re-review by `pr-reviewer` confirmed all review items are `RESOLVED`.

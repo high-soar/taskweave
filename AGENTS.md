@@ -4,7 +4,7 @@ title: Taskweave Project Agent Guidelines
 description: Taskweave のエージェントと開発者が共有するプロジェクト運用指針
 tags: [ai-agents, development, project-rules]
 status: stable
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T01:20:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-24T16:15:00Z }
 ---
 
 # Taskweave Project Agent Guidelines
@@ -29,12 +29,12 @@ When implementation starts, keep source data separate from generated schedules. 
 
 To avoid duplication across AI assistants, this repository follows a unified configuration strategy:
 
-| Component                   | Source of Truth (SSOT)                                   | Antigravity Integration             | GitHub Copilot Integration                       |
-| :-------------------------- | :------------------------------------------------------- | :---------------------------------- | :----------------------------------------------- |
-| **Rules / Instructions**    | `AGENTS.md` (this file)                                  | Natively loaded from workspace root | Referenced via `.github/copilot-instructions.md` |
-| **Human development rules** | [`docs/development/rules.md`](docs/development/rules.md) | Linked from this file               | Linked from `README.md` and this file            |
-| **Skills**                  | `.github/skills/<name>/SKILL.md`                         | Mapped via `.agents/skills.json`    | Natively loaded from `.github/skills/`           |
-| **Custom Agents**           | `.github/agents/<name>.agent.md`                         | Accessible as agent templates/rules | Natively loaded from `.github/agents/`           |
+| Component                   | Source of Truth (SSOT)                                   | Antigravity Integration                                                                                                  | GitHub Copilot Integration                       |
+| :-------------------------- | :------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------- | :----------------------------------------------- |
+| **Rules / Instructions**    | `AGENTS.md` (this file)                                  | Natively loaded from workspace root                                                                                      | Referenced via `.github/copilot-instructions.md` |
+| **Human development rules** | [`docs/development/rules.md`](docs/development/rules.md) | Linked from this file                                                                                                    | Linked from `README.md` and this file            |
+| **Skills**                  | `.github/skills/<name>/SKILL.md`                         | Mapped via `.agents/skills.json`                                                                                         | Natively loaded from `.github/skills/`           |
+| **Custom Agents**           | `.github/agents/<name>.agent.md`                         | Accessible as agent templates/rules (`taskweave-maintainer`: 構成・環境保守, `pr-reviewer`: PR プレレビュー・再レビュー) | Natively loaded from `.github/agents/`           |
 
 ---
 
@@ -48,7 +48,7 @@ To avoid duplication across AI assistants, this repository follows a unified con
 - **GitHub CLI (`gh`) Integration**: Use `gh issue list`, `gh issue view`, and `gh issue create` to inspect and interact with the backlog from the CLI environment.
 - **Validation**: Add focused tests for scheduling constraints and replanning behavior when the implementation begins. Changes to source-file formats require validation and documentation updates.
 - **Configuration Maintenance**: When modifying or adding configurations (`.devcontainer/`, `.agents/`, `.github/`, `AGENTS.md`), always consult the **`repo-config-management`** skill.
-- **PR Approval & Merge Guardrail**: Pull Request のレビュー、承認、およびマージは人間（開発者）の権限です。エージェントは PR 作成と CI の正常終了確認までを担当し、ユーザーから明示的な指示がない限り、自律的に PR をマージしてはなりません。
+- **PR Review & Merge Guardrail**: Pull Request の最終承認およびマージは人間（開発者）の権限です。エージェントは PR 作成、CI 正常終了確認、独立サブエージェント（`pr-reviewer`）によるプレレビューおよび再レビュー完了確認までを担当し、ユーザーから明示的な指示がない限り、自律的に PR をマージしてはなりません。
 
 ## 4. Human Development Rules
 
