@@ -134,6 +134,15 @@ taskweave replan data --as-of 2026-09-09 --format mermaid
 
 # 再計画差分および遅延診断を Markdown テーブル形式で出力・保存
 taskweave replan data --as-of 2026-09-09 --format markdown --output replan.md
+
+# 再計画結果の確認とベースライン確定保存（既存 baseline.json を安全に更新・バックアップ作成）
+taskweave apply data --as-of 2026-09-09
+
+# 差分サマリの確認のみ（ファイル更新なし）
+taskweave apply data --as-of 2026-09-09 --dry-run
+
+# 納期緩和推奨・担当者変更を原本 tasks.yaml にも自動反映
+taskweave apply data --as-of 2026-09-09 --update-tasks
 ```
 
 ## 開発ルール

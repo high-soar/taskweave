@@ -5,6 +5,7 @@
 - taskweave plan [dir] [--start-date <date>] [--format text|json|mermaid|markdown] [--output <path>]
 - taskweave replan [dir] --as-of <date> [--baseline <path>] [--format text|json|mermaid|markdown] [--output <path>]
 - taskweave log <date> [dir] --member <id> --task <id> --hours <h> [--remaining <h>] [--status <status>] [--add]
+- taskweave apply [dir] --as-of <date> [--baseline <path>] [--output <path>] [--no-backup] [--dry-run] [--update-tasks]
 """
 
 from __future__ import annotations
@@ -369,6 +370,46 @@ def main(argv: list[str] | None = None) -> int:
         help="同一日の同一メンバ・同一タスク実績が既にある場合に加算する (デフォルト: 上書き)",
     )
 
+    # apply サブコマンド
+    apply_parser = subparsers.add_parser(
+        "apply",
+        help="再計画結果を検証し、確定ベースライン計画を保存・更新する",
+    )
+    apply_parser.add_argument(
+        "directory",
+        nargs="?",
+        default="data",
+        help="原本 YAML ファイルが置かれたディレクトリ (デフォルト: data)",
+    )
+    apply_parser.add_argument(
+        "--as-of",
+        required=True,
+        help="起算日 (YYYY-MM-DD 形式)",
+    )
+    apply_parser.add_argument(
+        "--baseline",
+        help="比較元の既存ベースライン計画 JSON ファイルのパス (省略時は既存 baseline.json または動的計算)",
+    )
+    apply_parser.add_argument(
+        "--output",
+        help="更新先ベースライン計画 JSON ファイルのパス (省略時は --baseline または <dir>/baseline.json)",
+    )
+    apply_parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="既存ベースラインファイルや tasks.yaml のバックアップ作成をスキップする",
+    )
+    apply_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="ファイル書き込みを行わず、差分サマリと適用予定内容のみを表示する",
+    )
+    apply_parser.add_argument(
+        "--update-tasks",
+        action="store_true",
+        help="納期緩和推奨および担当者変更を原本 tasks.yaml に反映する",
+    )
+
     args = parser.parse_args(argv)
 
     if args.subcommand == "validate":
@@ -526,6 +567,126 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(
             f"実績を actuals.yaml に記録しました (date: {args.date}, member: {args.member}, task: {args.task}, hours: {args.hours}h)\n"
         )
+        return 0
+
+    if args.subcommand == "apply":
+        has_errors = validate_directory(args.directory)
+        if has_errors:
+            return 1
+
+        target_dir = Path(args.directory).resolve()
+        out_path = Path(args.output).resolve() if args.output else (Path(args.baseline).resolve() if args.baseline else target_dir / "baseline.json")
+        baseline_path = Path(args.baseline).resolve() if args.baseline else (out_path if out_path.exists() else None)
+
+        baseline_data = None
+        if baseline_path and baseline_path.exists():
+            try:
+                with open(baseline_path, encoding="utf-8") as f:
+                    baseline_data = json.load(f)
+            except Exception as err:
+                sys.stderr.write(f"ベースラインファイルの読み込みに失敗しました: {err}\n")
+                return 1
+
+        try:
+            from taskweave.diff import format_diff_summary
+            from taskweave.replan import replan
+
+            result = replan(
+                data_dir=args.directory,
+                as_of_date=args.as_of,
+                baseline_schedule=baseline_data,
+            )
+        except Exception as err:
+            sys.stderr.write(f"再計画の実行に失敗しました: {err}\n")
+            return 1
+
+        diff_res = result.get("diff", {})
+        summary_text = format_diff_summary(diff_res)
+        sys.stdout.write(summary_text + "\n")
+
+        if args.dry_run:
+            sys.stdout.write("[Dry Run] ベースラインの更新はスキップされました。\n")
+            return 0
+
+        # ベースライン更新
+        replanned_data = result.get("replanned", {})
+        replanned_json = json.dumps(replanned_data, ensure_ascii=False, indent=2) + "\n"
+
+        if out_path.exists() and not args.no_backup:
+            backup_path = out_path.with_name(out_path.name + ".bak")
+            try:
+                import shutil
+                shutil.copy2(out_path, backup_path)
+                sys.stdout.write(f"[Backup] 既存ベースラインのバックアップを作成しました: {backup_path}\n")
+            except Exception as err:
+                sys.stderr.write(f"ベースラインバックアップの作成に失敗しました: {err}\n")
+                return 1
+
+        try:
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            tmp_out = out_path.with_name(f".{out_path.name}.tmp")
+            tmp_out.write_text(replanned_json, encoding="utf-8")
+            tmp_out.replace(out_path)
+            sys.stdout.write(f"[Apply] ベースライン計画を更新しました: {out_path}\n")
+        except Exception as err:
+            sys.stderr.write(f"ベースラインファイルの書き込みに失敗しました: {err}\n")
+            return 1
+
+        # 原本 tasks.yaml の更新 (--update-tasks)
+        if args.update_tasks:
+            tasks_file = target_dir / "tasks.yaml"
+            if tasks_file.exists():
+                if not args.no_backup:
+                    tasks_bak = tasks_file.with_name(tasks_file.name + ".bak")
+                    try:
+                        import shutil
+                        shutil.copy2(tasks_file, tasks_bak)
+                        sys.stdout.write(f"[Backup] 既存 tasks.yaml のバックアップを作成しました: {tasks_bak}\n")
+                    except Exception as err:
+                        sys.stderr.write(f"tasks.yaml バックアップの作成に失敗しました: {err}\n")
+                        return 1
+
+                try:
+                    tasks_content = tasks_file.read_text(encoding="utf-8")
+                    raw_data = yaml.safe_load(tasks_content) or {}
+                    tasks_list = raw_data.get("tasks", []) if isinstance(raw_data, dict) else []
+
+                    recs = diff_res.get("recommendations", [])
+                    rec_deadlines = {
+                        r["task_id"]: r["recommended_deadline"]
+                        for r in recs
+                        if "task_id" in r and "recommended_deadline" in r
+                    }
+
+                    tasks_diff = diff_res.get("tasks", {})
+                    reassigned = {
+                        t_id: t_info["replanned"]["assigned_to"]
+                        for t_id, t_info in tasks_diff.items()
+                        if t_info.get("diff", {}).get("assignee_changed") and t_info.get("replanned", {}).get("assigned_to")
+                    }
+
+                    modified_count = 0
+                    for t in tasks_list:
+                        tid = t.get("id")
+                        if tid in rec_deadlines:
+                            t["deadline"] = rec_deadlines[tid]
+                            modified_count += 1
+                        if tid in reassigned:
+                            t["assigned_to"] = reassigned[tid]
+                            modified_count += 1
+
+                    if modified_count > 0:
+                        updated_yaml = yaml.dump(raw_data, allow_unicode=True, sort_keys=False)
+                        tmp_yaml = tasks_file.with_name(f".{tasks_file.name}.tmp")
+                        tmp_yaml.write_text(updated_yaml, encoding="utf-8")
+                        tmp_yaml.replace(tasks_file)
+                        sys.stdout.write(f"[Apply] tasks.yaml を更新しました ({modified_count} 箇所の変更)\n")
+                    else:
+                        sys.stdout.write("[Apply] tasks.yaml に更新対象の推奨・再割当はありませんでした\n")
+                except Exception as err:
+                    sys.stderr.write(f"tasks.yaml の更新に失敗しました: {err}\n")
+                    return 1
+
         return 0
 
     parser.print_help()
