@@ -1,0 +1,106 @@
+"""Taskweave actuals 記録関数の単体テスト."""
+
+from pathlib import Path
+import pytest
+import yaml
+
+from taskweave.actuals import record_work_log
+
+BASIC_DIR = Path(__file__).resolve().parent.parent.parent / "examples" / "basic"
+
+
+@pytest.fixture
+def project_dir(tmp_path: Path) -> Path:
+    (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+    return tmp_path
+
+
+def test_record_work_log_invalid_date(project_dir: Path):
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="invalid-date",
+        member_id="alice",
+        task_id="task-api",
+        hours=8.0,
+    )
+    assert not success
+    assert any("date" in e for e in errors)
+
+
+def test_record_work_log_invalid_hours(project_dir: Path):
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=0.05,
+    )
+    assert not success
+    assert any("hours" in e for e in errors)
+
+
+def test_record_work_log_invalid_remaining_hours(project_dir: Path):
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=8.0,
+        remaining_hours=-1.0,
+    )
+    assert not success
+    assert any("remaining_hours" in e for e in errors)
+
+
+def test_record_work_log_invalid_status(project_dir: Path):
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=8.0,
+        status="invalid_status",
+    )
+    assert not success
+    assert any("status" in e for e in errors)
+
+
+def test_record_work_log_missing_master_file(tmp_path: Path):
+    # members.yaml 等が存在しないディレクトリ
+    success, errors = record_work_log(
+        dir_path=tmp_path,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=8.0,
+    )
+    assert not success
+    assert any("読み込み失敗" in e for e in errors)
+
+
+def test_record_work_log_corrupted_actuals_yaml(project_dir: Path):
+    (project_dir / "actuals.yaml").write_text("corrupted: [yaml: {", encoding="utf-8")
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=8.0,
+    )
+    assert not success
+    assert any("actuals.yaml 読み込み失敗" in e for e in errors)
+
+
+def test_record_work_log_non_dict_actuals(project_dir: Path):
+    (project_dir / "actuals.yaml").write_text("- item1\n- item2\n", encoding="utf-8")
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="2026-09-08",
+        member_id="alice",
+        task_id="task-api",
+        hours=8.0,
+    )
+    assert not success
+    assert any("オブジェクトが必須です" in e for e in errors)

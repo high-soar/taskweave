@@ -550,7 +550,7 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "8.0",
         )
         assert result.returncode == 0
@@ -564,7 +564,7 @@ class TestLogCLI:
         assert logs[0] == {
             "date": "2026-09-08",
             "member_id": "alice",
-            "task_id": "task-setup",
+            "task_id": "task-api",
             "hours": 8.0,
         }
 
@@ -579,7 +579,7 @@ class TestLogCLI:
             "log",
             "2026-09-08",
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "8.0",
             cwd=str(tmp_path),
         )
@@ -595,7 +595,7 @@ class TestLogCLI:
   work_logs:
     - date: 2026-09-08
       member_id: alice
-      task_id: task-setup
+      task_id: task-api
       hours: 4.0
 """,
             encoding="utf-8",
@@ -606,7 +606,7 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "6.0",
         )
         assert result.returncode == 0
@@ -625,7 +625,7 @@ class TestLogCLI:
   work_logs:
     - date: 2026-09-08
       member_id: alice
-      task_id: task-setup
+      task_id: task-api
       hours: 4.0
 """,
             encoding="utf-8",
@@ -636,7 +636,7 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "2.0",
             "--add",
         )
@@ -656,7 +656,7 @@ class TestLogCLI:
   work_logs:
     - date: 2026-09-08
       member_id: alice
-      task_id: task-setup
+      task_id: task-api
       hours: 4.0
 """,
             encoding="utf-8",
@@ -667,7 +667,7 @@ class TestLogCLI:
             "2026-09-09",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "4.0",
         )
         assert result.returncode == 0
@@ -688,7 +688,7 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "8.0",
             "--remaining", "0.0",
             "--status", "completed",
@@ -700,7 +700,7 @@ class TestLogCLI:
         tp = content["actuals"].get("task_progress", [])
         assert len(tp) == 1
         assert tp[0] == {
-            "task_id": "task-setup",
+            "task_id": "task-api",
             "remaining_hours": 0.0,
             "status": "completed",
         }
@@ -712,7 +712,7 @@ class TestLogCLI:
             """work_logs:
   - date: 2026-09-08
     member_id: alice
-    task_id: task-setup
+    task_id: task-api
     hours: 4.0
 """,
             encoding="utf-8",
@@ -723,7 +723,7 @@ class TestLogCLI:
             "2026-09-09",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "4.0",
         )
         assert result.returncode == 0
@@ -741,7 +741,7 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "nonexistent_member",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "8.0",
         )
         assert result.returncode == 1
@@ -779,7 +779,7 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "8.0",
         )
         assert result.returncode == 1
@@ -794,7 +794,7 @@ class TestLogCLI:
   work_logs:
     - date: 2026-09-08
       member_id: alice
-      task_id: task-setup
+      task_id: task-api
       hours: 20.0
 """,
             encoding="utf-8",
@@ -804,7 +804,7 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "10.0",
             "--add",
         )
@@ -823,7 +823,7 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "-1.0",
         )
         assert res1.returncode in (1, 2)
@@ -833,13 +833,74 @@ class TestLogCLI:
             "2026-09-08",
             str(basic_project_files),
             "--member", "alice",
-            "--task", "task-setup",
+            "--task", "task-api",
             "--hours", "8.0",
             "--remaining", "2.0",
             "--status", "completed",
         )
         assert res2.returncode == 1
         assert "completed" in res2.stderr
+
+    def test_log_updates_task_progress_status_only_completed_auto_sets_remaining_zero(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "16.0",
+            "--status", "completed",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        tp = content["actuals"]["task_progress"]
+        assert len(tp) == 1
+        assert tp[0] == {
+            "task_id": "task-api",
+            "remaining_hours": 0.0,
+            "status": "completed",
+        }
+
+    def test_log_updates_task_progress_remaining_only_auto_determines_status(self, basic_project_files):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+
+        # remaining 8.0 -> in_progress
+        result1 = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "8.0",
+            "--remaining", "8.0",
+        )
+        assert result1.returncode == 0
+
+        import yaml
+        content1 = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        assert content1["actuals"]["task_progress"][0]["status"] == "in_progress"
+
+        # remaining 0.0 -> completed
+        result2 = run_cli(
+            "log",
+            "2026-09-09",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "8.0",
+            "--remaining", "0.0",
+        )
+        assert result2.returncode == 0
+
+        content2 = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        assert content2["actuals"]["task_progress"][0]["status"] == "completed"
+        assert content2["actuals"]["task_progress"][0]["remaining_hours"] == 0.0
 
 
 
