@@ -4,6 +4,7 @@
 - taskweave validate [dir]
 - taskweave plan [dir] [--start-date <date>] [--format text|json|mermaid|markdown] [--output <path>]
 - taskweave replan [dir] --as-of <date> [--baseline <path>] [--format text|json|mermaid|markdown] [--output <path>]
+- taskweave log <date> [dir] --member <id> --task <id> --hours <h> [--remaining <h>] [--status <status>] [--add]
 """
 
 from __future__ import annotations
@@ -321,6 +322,53 @@ def main(argv: list[str] | None = None) -> int:
         help="再計画結果の出力先ファイルパス (省略時は標準出力のみ)",
     )
 
+    # log サブコマンド
+    log_parser = subparsers.add_parser(
+        "log",
+        help="実績工数およびタスク進捗を記録する",
+    )
+    log_parser.add_argument(
+        "date",
+        help="作業日 (YYYY-MM-DD 形式)",
+    )
+    log_parser.add_argument(
+        "directory",
+        nargs="?",
+        default="data",
+        help="原本 YAML ファイルが置かれたディレクトリ (デフォルト: data)",
+    )
+    log_parser.add_argument(
+        "--member",
+        required=True,
+        help="作業メンバー ID",
+    )
+    log_parser.add_argument(
+        "--task",
+        required=True,
+        help="作業タスク ID",
+    )
+    log_parser.add_argument(
+        "--hours",
+        type=float,
+        required=True,
+        help="実績工数 (0.1時間刻みの正の数値)",
+    )
+    log_parser.add_argument(
+        "--remaining",
+        type=float,
+        help="残工数 (0.0以上の0.1時間刻みの数値)",
+    )
+    log_parser.add_argument(
+        "--status",
+        choices=["not_started", "in_progress", "completed"],
+        help="タスク進捗ステータス",
+    )
+    log_parser.add_argument(
+        "--add",
+        action="store_true",
+        help="同一日の同一メンバ・同一タスク実績が既にある場合に加算する (デフォルト: 上書き)",
+    )
+
     args = parser.parse_args(argv)
 
     if args.subcommand == "validate":
@@ -455,6 +503,29 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
         sys.stdout.write(output_content)
+        return 0
+
+    if args.subcommand == "log":
+        from taskweave.actuals import record_work_log
+
+        success, errors = record_work_log(
+            dir_path=args.directory,
+            date=args.date,
+            member_id=args.member,
+            task_id=args.task,
+            hours=args.hours,
+            remaining_hours=args.remaining,
+            status=args.status,
+            add=args.add,
+        )
+        if not success:
+            for err in errors:
+                sys.stderr.write(f"{err}\n")
+            return 1
+
+        sys.stdout.write(
+            f"実績を actuals.yaml に記録しました (date: {args.date}, member: {args.member}, task: {args.task}, hours: {args.hours}h)\n"
+        )
         return 0
 
     parser.print_help()

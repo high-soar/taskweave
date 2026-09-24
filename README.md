@@ -4,7 +4,7 @@ title: Taskweave
 description: コーディングエージェント向けのスケジュール調整ツール
 tags: [project, scheduling, documentation]
 status: draft
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-24T16:49:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-24T23:03:00Z }
 ---
 
 # Taskweave
@@ -122,6 +122,9 @@ taskweave plan data --format mermaid --output plan.mermaid
 
 # 初期計画を Markdown テーブル形式で出力
 taskweave plan data --format markdown
+
+# 実績工数および進捗ステータスの安全な記録・追記
+taskweave log 2026-09-08 data --member alice --task task-setup --hours 8.0 --remaining 0.0 --status completed
 
 # 起算日を指定した再計画とベースライン差分（Diff）診断
 taskweave replan data --as-of 2026-09-09 --baseline baseline.json
