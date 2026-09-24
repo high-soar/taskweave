@@ -2,12 +2,14 @@
 
 コマンド:
 - taskweave validate [dir]
+- taskweave plan [dir] [--start-date <date>] [--format text|json] [--output <path>]
 - taskweave replan [dir] --as-of <date> [--baseline <path>] [--format text|json]
 """
 
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 from pathlib import Path
 import re
@@ -192,6 +194,62 @@ def validate_directory(dir_path: str | Path) -> bool:
     return has_errors
 
 
+def format_plan_summary(plan_data: dict[str, Any]) -> str:
+    """初期計画結果を人間向けテキストサマリーに整形する."""
+    lines: list[str] = [
+        "==================================================",
+        "Taskweave Schedule Plan Report",
+        "==================================================",
+    ]
+    status = plan_data.get("status", "UNKNOWN")
+    makespan = plan_data.get("makespan_workdays") or 0
+    tasks = plan_data.get("tasks", {})
+
+    start_dates = [t["start_date"] for t in tasks.values() if t.get("start_date")]
+    end_dates = [t["end_date"] for t in tasks.values() if t.get("end_date")]
+    overall_start = min(start_dates) if start_dates else "-"
+    overall_end = max(end_dates) if end_dates else "-"
+
+    lines.append(f"Status: {status}")
+    lines.append(f"Makespan: {makespan} workdays ({overall_start} ~ {overall_end})")
+    lines.append("")
+    lines.append(f"--- Tasks ({len(tasks)} tasks) ---")
+
+    sorted_tasks = sorted(tasks.items(), key=lambda item: (item[1].get("start_date", ""), item[0]))
+    for t_id, t_info in sorted_tasks:
+        assignee = t_info.get("assigned_to", "unassigned")
+        s_date = t_info.get("start_date", "-")
+        e_date = t_info.get("end_date", "-")
+        w_days = t_info.get("workdays_count", 0)
+        est = t_info.get("estimate_hours", 0.0)
+        delay = t_info.get("delay_days", 0)
+        delay_str = f" [遅延: +{delay}稼働日]" if delay > 0 else ""
+        lines.append(f"- {t_id}: {assignee} ({s_date} ~ {e_date}, {w_days} workdays, {est:.1f}h){delay_str}")
+
+    diagnostics = plan_data.get("diagnostics", {})
+    delayed_tasks = diagnostics.get("delayed_tasks", [])
+    recs = diagnostics.get("recommendations", [])
+
+    if delayed_tasks:
+        lines.append("")
+        lines.append(f"--- Delayed Tasks & Diagnostics ({len(delayed_tasks)} tasks) ---")
+        for dt in delayed_tasks:
+            lines.append(
+                f"[!] {dt.get('task_id')}: 納期 {dt.get('deadline')} を {dt.get('delay_workdays')} 稼働日超過 ({dt.get('reason', '')})"
+            )
+
+    if recs:
+        lines.append("")
+        lines.append("--- Recommendations (納期緩和推奨) ---")
+        for rec in recs:
+            lines.append(
+                f"- [納期緩和] {rec.get('task_id')}: 推奨納期 {rec.get('recommended_deadline')} (+{rec.get('additional_workdays_needed')}稼働日)"
+            )
+
+    lines.append("==================================================")
+    return "\n".join(lines)
+
+
 def main(argv: list[str] | None = None) -> int:
     """CLI エントリポイント."""
     parser = argparse.ArgumentParser(prog="taskweave", description="Taskweave CLI")
@@ -204,6 +262,32 @@ def main(argv: list[str] | None = None) -> int:
         nargs="?",
         default="data",
         help="原本 YAML ファイル（members.yaml, tasks.yaml, calendar.yaml）が置かれたディレクトリ (デフォルト: data)",
+    )
+
+    # plan サブコマンド
+    plan_parser = subparsers.add_parser(
+        "plan",
+        help="原本 YAML データから初期計画を計算する",
+    )
+    plan_parser.add_argument(
+        "directory",
+        nargs="?",
+        default="data",
+        help="原本 YAML ファイル（members.yaml, tasks.yaml, calendar.yaml）が置かれたディレクトリ (デフォルト: data)",
+    )
+    plan_parser.add_argument(
+        "--start-date",
+        help="プロジェクト開始日 (YYYY-MM-DD 形式, 省略時は実績最古日または当日)",
+    )
+    plan_parser.add_argument(
+        "--format",
+        choices=["text", "json"],
+        default="text",
+        help="出力フォーマット (text または json, デフォルト: text)",
+    )
+    plan_parser.add_argument(
+        "--output",
+        help="計画結果の出力先ファイルパス (省略時は標準出力のみ)",
     )
 
     # replan サブコマンド
@@ -241,6 +325,69 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         target_dir = Path(args.directory).resolve()
         sys.stdout.write(f"YAML 原本データの検証に成功しました: {target_dir}\n")
+        return 0
+
+    if args.subcommand == "plan":
+        has_errors = validate_directory(args.directory)
+        if has_errors:
+            return 1
+
+        from taskweave.engine import load_project_data, solve_schedule, to_date
+
+        try:
+            members, tasks, calendar, actuals = load_project_data(args.directory, include_actuals=True)
+        except Exception as err:
+            sys.stderr.write(f"原本データの読み込みに失敗しました: {err}\n")
+            return 1
+
+        if args.start_date:
+            try:
+                proj_start = to_date(args.start_date)
+            except Exception as err:
+                sys.stderr.write(f"無効な開始日形式です (--start-date): {err}\n")
+                return 1
+        else:
+            earliest_log_date = None
+            if actuals and isinstance(actuals.get("work_logs"), list):
+                log_dates = [
+                    to_date(log["date"])
+                    for log in actuals["work_logs"]
+                    if isinstance(log, dict) and log.get("date")
+                ]
+                if log_dates:
+                    earliest_log_date = min(log_dates)
+            proj_start = earliest_log_date if earliest_log_date is not None else datetime.date.today()
+
+        try:
+            result = solve_schedule(
+                members_data=members,
+                tasks_data=tasks,
+                calendar_data=calendar,
+                project_start_date=proj_start,
+            )
+        except Exception as err:
+            sys.stderr.write(f"計画の計算に失敗しました: {err}\n")
+            return 1
+
+        if result.get("status") not in ("OPTIMAL", "FEASIBLE"):
+            sys.stderr.write(f"計画の計算が完了しませんでした (ステータス: {result.get('status')})\n")
+            return 1
+
+        if args.format == "json":
+            output_content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+        else:
+            output_content = format_plan_summary(result) + "\n"
+
+        if args.output:
+            try:
+                out_path = Path(args.output)
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(output_content, encoding="utf-8")
+            except Exception as err:
+                sys.stderr.write(f"出力ファイルへの書き込みに失敗しました: {err}\n")
+                return 1
+
+        sys.stdout.write(output_content)
         return 0
 
     if args.subcommand == "replan":
