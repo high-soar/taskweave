@@ -86,10 +86,25 @@ This skill guides AI agents and developers in applying **Spec-Driven Development
      npm test
      npm run typecheck
      ```
-3. **Verify DoD & Close**:
+3. **Verify DoD**:
    - Update the specification document status from `Accepted` to `Implemented`.
    - Check off all completed items in the Issue's Tasklist.
-   - Ensure the Pull Request references the issue with `Closes #<issue-number>`.
+
+### Phase 5: PR & Independent Pre-Review (AI プレレビュー)
+
+1. **Create Pull Request**:
+   - Push the branch and create a PR referencing the issue (`Closes #<issue-number>`).
+   - Verify that CI passes.
+2. **Invoke Independent `pr-reviewer` Subagent**:
+   - Launch `pr-reviewer` independently passing ONLY the PR number or URL.
+   - Do NOT pass implementation chat history or bias.
+   - The subagent performs a zero-context critical review and posts comments with `[MUST]`, `[SHOULD]`, `Why`, and `Alternative` via `gh pr comment`.
+3. **Address Review Feedback**:
+   - Inspect review comments (`[R1]`, `[R2]`...).
+   - Fix all `[MUST]` and `[SHOULD]` items in code/tests.
+   - Commit, push, and reply to each `[Rx]` in the PR comments.
+4. **Handoff to Human Review**:
+   - Once AI pre-review points are resolved and CI passes, notify the human developer for final review, approval, and merge.
 
 ---
 
@@ -101,3 +116,5 @@ This skill guides AI agents and developers in applying **Spec-Driven Development
 - [ ] Tests were confirmed failing (Red) prior to implementation.
 - [ ] Implementation satisfies all tests with no extraneous code (Green + YAGNI).
 - [ ] All quality checks (`format:check`, `lint`, `test`, `typecheck`) pass without errors (DoD satisfied).
+- [ ] PR was created and reviewed by independent `pr-reviewer` subagent.
+- [ ] All `[MUST]` and `[SHOULD]` review items are addressed and answered in PR comments.
