@@ -353,6 +353,7 @@ class TestPlanCLI:
         (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
         result = run_cli("plan", str(basic_project_files))
         assert result.returncode == 0
+        assert result.stderr == ""
         assert "Taskweave Schedule Plan Report" in result.stdout
         assert "Status: OPTIMAL" in result.stdout
         assert "Makespan:" in result.stdout
@@ -483,6 +484,58 @@ task_progress:
         assert "Delayed Tasks & Diagnostics" in result.stdout
         assert "task-tight" in result.stdout
         assert "納期緩和推奨" in result.stdout
+
+    def test_plan_invalid_arguments_exit_code_2(self):
+        result = run_cli("plan", "--format", "invalid_format")
+        assert result.returncode == 2
+
+    def test_plan_nonexistent_directory_fails(self):
+        result = run_cli("plan", "nonexistent_dir_path")
+        assert result.returncode == 1
+        assert "読み込み失敗" in result.stderr
+
+    def test_plan_output_creates_parent_directories(self, basic_project_files, tmp_path):
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        nested_output = tmp_path / "deeply" / "nested" / "dir" / "plan.json"
+        result = run_cli("plan", str(basic_project_files), "--format", "json", "--output", str(nested_output))
+        assert result.returncode == 0
+        assert nested_output.exists()
+
+    def test_plan_solver_infeasible_status_fails(self, basic_project_files, monkeypatch, capsys):
+        from taskweave.cli import main
+        import taskweave.engine
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        monkeypatch.setattr(taskweave.engine, "solve_schedule", lambda **kwargs: {"status": "INFEASIBLE"})
+        ret = main(["plan", str(basic_project_files)])
+        assert ret == 1
+        captured = capsys.readouterr()
+        assert "計画の計算が完了しませんでした (ステータス: INFEASIBLE)" in captured.err
+
+    def test_format_plan_summary_none_makespan_and_delay_units(self):
+        from taskweave.cli import format_plan_summary
+
+        data = {
+            "status": "FEASIBLE",
+            "makespan_workdays": None,
+            "tasks": {
+                "t1": {
+                    "assigned_to": "alice",
+                    "start_date": "2026-09-01",
+                    "end_date": "2026-09-02",
+                    "workdays_count": 2,
+                    "estimate_hours": 16.0,
+                    "delay_days": 3,
+                }
+            },
+            "diagnostics": {
+                "delayed_tasks": [{"task_id": "t1", "deadline": "2026-08-30", "delay_workdays": 3, "reason": "工数不足"}],
+                "recommendations": [],
+            },
+        }
+        text = format_plan_summary(data)
+        assert "Makespan: 0 workdays" in text
+        assert "[遅延: +3稼働日]" in text
 
 
 

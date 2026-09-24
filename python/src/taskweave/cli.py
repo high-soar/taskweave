@@ -202,7 +202,7 @@ def format_plan_summary(plan_data: dict[str, Any]) -> str:
         "==================================================",
     ]
     status = plan_data.get("status", "UNKNOWN")
-    makespan = plan_data.get("makespan_workdays", 0)
+    makespan = plan_data.get("makespan_workdays") or 0
     tasks = plan_data.get("tasks", {})
 
     start_dates = [t["start_date"] for t in tasks.values() if t.get("start_date")]
@@ -223,7 +223,7 @@ def format_plan_summary(plan_data: dict[str, Any]) -> str:
         w_days = t_info.get("workdays_count", 0)
         est = t_info.get("estimate_hours", 0.0)
         delay = t_info.get("delay_days", 0)
-        delay_str = f" [遅延: +{delay}日]" if delay > 0 else ""
+        delay_str = f" [遅延: +{delay}稼働日]" if delay > 0 else ""
         lines.append(f"- {t_id}: {assignee} ({s_date} ~ {e_date}, {w_days} workdays, {est:.1f}h){delay_str}")
 
     diagnostics = plan_data.get("diagnostics", {})
@@ -367,6 +367,10 @@ def main(argv: list[str] | None = None) -> int:
             )
         except Exception as err:
             sys.stderr.write(f"計画の計算に失敗しました: {err}\n")
+            return 1
+
+        if result.get("status") not in ("OPTIMAL", "FEASIBLE"):
+            sys.stderr.write(f"計画の計算が完了しませんでした (ステータス: {result.get('status')})\n")
             return 1
 
         if args.format == "json":

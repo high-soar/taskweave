@@ -43,8 +43,9 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 #### 原本初期計画コマンド (`taskweave plan` - Issue #40)
 
 - **FR-1 (`taskweave plan` コマンドライン構文)**:
-  - 基本構文: `taskweave plan [directory] [--format text|json] [--output <path>]`
+  - 基本構文: `taskweave plan [directory] [--start-date <YYYY-MM-DD>] [--format text|json] [--output <path>]`
   - `directory`: 原本 YAML ファイル（`members.yaml`, `tasks.yaml`, `calendar.yaml`）が配置されたディレクトリ。省略時は `data`。
+  - `--start-date <YYYY-MM-DD>`: プロジェクト開始日。省略時は実績データ中の最古作業ログ日（`earliest_log_date`）、それも存在しない場合は実行日当日（`datetime.date.today()`）を起点とする。
   - `--format`: 出力形式を指定。`text`（デフォルト: 人間向けテキストサマリ）または `json`（JSON 構造化データ）。（※Issue #41 にて `markdown`, `mermaid` を追加拡張）。
   - `--output <path>`: 指定されたパスにフォーマット結果を出力・保存する。
 - **FR-2 (事前原本バリデーション連携)**:
@@ -52,7 +53,8 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
   - 構文エラーまたは論理整合性エラーが存在する場合、標準エラー出力（`stderr`）に対象ファイル・行番号・エラー内容を出力し、終了コード `1` で処理を中断すること。
 - **FR-3 (初期スケジュール計算エンジン実行)**:
   - 検証通過後、原本データ（members, tasks, calendar）を `taskweave.engine.solve_schedule` に渡し、制約を満たすスケジュールを算出すること。
-  - 最適解または実行可能解が得られた場合、各タスクの割当担当者、開始日、終了日、稼働日数、遅延日数、および全体の Makespan を出力すること。
+  - プロジェクト開始日は `--start-date` が指定された場合はその日付、未指定の場合は実績データ中の最古作業ログ日（`earliest_log_date`）、それも存在しない場合は実行日当日（`datetime.date.today()`）を起点とすること。
+  - 最適解または実行可能解が得られた場合、各タスクの割当担当者、開始日、終了日、稼働日数、遅延日数、および全体の Makespan を出力すること。計算不能または解なし（INFEASIBLE 等）の場合は標準エラー出力にメッセージを出力して終了コード `1` で終了すること。
   - 納期制約違反やボトルネックが存在する場合、ソフト制約によるペナルティ最小化解と遅延タスク・納期緩和推奨（recommendations）を診断情報として出力すること。
 - **FR-4 (`--format text` 出力形式)**:
   - スケジュールのステータス、全体の Makespan（実稼働日数および実日付範囲）、タスクごとの割当・日程・工数概要を読みやすいテキスト形式で出力すること。
@@ -120,30 +122,36 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 ```json
 {
   "status": "OPTIMAL",
+  "project_start_date": "2026-09-08",
+  "as_of_date": null,
   "makespan_workdays": 10,
-  "start_date": "2026-09-08",
-  "end_date": "2026-09-22",
-  "total_delay_days": 0,
   "tasks": {
     "task-setup": {
       "assigned_to": "alice",
       "start_date": "2026-09-08",
       "end_date": "2026-09-08",
       "workdays_count": 1,
+      "actual_active_days": 1,
       "estimate_hours": 8.0,
-      "delay_days": 0
-    },
-    "task-api": {
-      "assigned_to": "alice",
-      "start_date": "2026-09-09",
-      "end_date": "2026-09-10",
-      "workdays_count": 2,
-      "estimate_hours": 16.0,
+      "remaining_hours": 8.0,
+      "total_logged_hours": 0.0,
+      "status": "not_started",
+      "daily_hours": {
+        "2026-09-08": 8.0
+      },
+      "deadline": null,
       "delay_days": 0
     }
   },
+  "member_daily_work": {
+    "alice": {
+      "2026-09-08": 8.0
+    }
+  },
   "diagnostics": {
-    "bottlenecks": [],
+    "is_deadline_violated": false,
+    "total_delay_workdays": 0,
+    "delayed_tasks": [],
     "recommendations": []
   }
 }
