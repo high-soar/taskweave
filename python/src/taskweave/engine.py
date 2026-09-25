@@ -256,9 +256,20 @@ def solve_schedule(
     absent_set = parse_absences(absences_cfg)
 
     if horizon_days is None:
-        min_cap = min(member_capacities.values()) if member_capacities else (base_hours_per_day * scale)
+        cal_allowed_wd = [w for w in workdays_cfg if w in WEEKDAY_MAP]
+        cal_wd_count = len(cal_allowed_wd) if cal_allowed_wd else 5
+        member_workdays_ratio = {
+            m["id"]: (len([w for w in m["workdays"] if w in WEEKDAY_MAP]) / cal_wd_count)
+            if isinstance(m.get("workdays"), list) and m["workdays"]
+            else 1.0
+            for m in members_data
+        }
+        min_effective_cap = min(
+            member_capacities[m_id] * member_workdays_ratio.get(m_id, 1.0)
+            for m_id in member_ids
+        ) if member_ids else (base_hours_per_day * scale)
         total_workload = sum(round(t["estimate_hours"] * scale) for t in tasks_data)
-        min_needed = math.ceil(total_workload / min_cap) if min_cap > 0 else 30
+        min_needed = math.ceil(total_workload / min_effective_cap) if min_effective_cap > 0 else 30
         horizon_days = max(30, min_needed + len(tasks_data) + len(absences_cfg) + 10)
 
     workdays = build_workdays(
@@ -268,9 +279,22 @@ def solve_schedule(
         holidays_config=holidays_cfg,
     )
 
-    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16)
+    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16, Issue #51 AC-4)
+    member_workdays_map = {
+        m["id"]: {WEEKDAY_MAP[w] for w in m["workdays"] if w in WEEKDAY_MAP}
+        if isinstance(m.get("workdays"), list)
+        else None
+        for m in members_data
+    }
     daily_caps = {
-        (m_id, d): (0 if (m_id, workdays[d]) in absent_set else member_capacities[m_id])
+        (m_id, d): (
+            0
+            if (
+                (m_id, workdays[d]) in absent_set
+                or (member_workdays_map[m_id] is not None and workdays[d].weekday() not in member_workdays_map[m_id])
+            )
+            else member_capacities[m_id]
+        )
         for m_id in member_ids
         for d in range(horizon_days)
     }
@@ -765,11 +789,22 @@ def _solve_replan(
             "diagnostics": diagnostics,
         }
 
-    # 未来計画地平 (Horizon) の決定
+    # 未来計画地平 (Horizon) の決定 (Issue #51 [R3])
     if horizon_days is None:
-        min_cap = min(member_capacities.values()) if member_capacities else (base_hours_per_day * scale)
+        cal_allowed_wd = [w for w in workdays_cfg if w in WEEKDAY_MAP]
+        cal_wd_count = len(cal_allowed_wd) if cal_allowed_wd else 5
+        member_workdays_ratio = {
+            m["id"]: (len([w for w in m["workdays"] if w in WEEKDAY_MAP]) / cal_wd_count)
+            if isinstance(m.get("workdays"), list) and m["workdays"]
+            else 1.0
+            for m in members_data
+        }
+        min_effective_cap = min(
+            member_capacities[m_id] * member_workdays_ratio.get(m_id, 1.0)
+            for m_id in member_ids
+        ) if member_ids else (base_hours_per_day * scale)
         total_workload = sum(round(progress_by_task[t_id]["remaining_hours"] * scale) for t_id in future_task_ids)
-        min_needed = math.ceil(total_workload / min_cap) if min_cap > 0 else 30
+        min_needed = math.ceil(total_workload / min_effective_cap) if min_effective_cap > 0 else 30
         future_horizon_days = max(30, min_needed + len(future_task_ids) + len(absences_cfg) + 10)
     else:
         future_horizon_days = horizon_days
@@ -782,9 +817,22 @@ def _solve_replan(
         holidays_config=holidays_cfg,
     )
 
-    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16)
+    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16, Issue #51 AC-4)
+    member_workdays_map = {
+        m["id"]: {WEEKDAY_MAP[w] for w in m["workdays"] if w in WEEKDAY_MAP}
+        if isinstance(m.get("workdays"), list)
+        else None
+        for m in members_data
+    }
     future_daily_caps = {
-        (m_id, d): (0 if (m_id, future_workdays[d]) in absent_set else member_capacities[m_id])
+        (m_id, d): (
+            0
+            if (
+                (m_id, future_workdays[d]) in absent_set
+                or (member_workdays_map[m_id] is not None and future_workdays[d].weekday() not in member_workdays_map[m_id])
+            )
+            else member_capacities[m_id]
+        )
         for m_id in member_ids
         for d in range(future_horizon_days)
     }
