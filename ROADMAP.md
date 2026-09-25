@@ -4,7 +4,7 @@ title: Taskweave プロダクトロードマップ & マイルストーン
 description: Taskweave の全体目標、開発マイルストーン、将来の検討事項
 tags: [roadmap, planning, milestones]
 status: stable
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T02:25:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T15:30:00Z }
 ---
 
 # Taskweave プロダクトロードマップ & マイルストーン
@@ -29,6 +29,7 @@ gantt
     section 統合・運用
     M4: エージェント CLI & レポーティング :done, m4, 2026-09, 2026-09
     M5: スキーマ表現力 & 最適化強化    :done, m5, 2026-09, 2026-09
+    M6: スキル提供 & CLI展開機能       :active, m6, 2026-09, 2026-10
 ```
 
 ---
@@ -124,6 +125,20 @@ gantt
   - 初期計画の段階で特定タスクの担当者を明示的に指定・推奨できる (#52)
   - スキル要件を満たす複数メンバーがいる場合、全体の工期を延ばさずに負荷が自然に平準化される (#53)
   - 着手済みタスクの残工数を別メンバーへ引き継ぐ再割り当てができる (#54)
+
+### Milestone 6: エージェントスキル提供 & CLI展開機能 (Agent Skills & CLI Distribution)
+
+- **ステータス**: 進行中 (In Progress)
+- **ゴール**: 外部利用者の AI エージェント（Claude Code, GitHub Copilot, Google Antigravity, Cursor 等）が Taskweave をスムーズかつ自律的に操作できるよう、標準スキル（Agent Skill）を定義し、CLI から利用者のプロジェクトへ展開可能にする。
+- **解決する設計課題**:
+  - Progressive Disclosure（段階的開示）に基づくトークン効率の高いスキル設計（`SKILL.md` + `references/`）
+  - SSOT（原本データ）保護ルールと実績（actual）・残工数（remaining）の混同防止エージェント規範
+  - CLI コマンド（`taskweave init --skills` / `taskweave skills install`）による各エージェント向けディレクトリへの自動展開
+  - Python パッケージ（wheel/sdist）へのスキルアセット同梱と公開ドキュメントの整備
+- **対象ユーザーストーリー**:
+  - AI エージェント向けスキルの定義およびリポジトリ配置 (`skills/taskweave`) (#62)
+  - CLI 経由でのスキルおよび初期テンプレート展開機能の実装 (`taskweave init` / `skills install`) (#63)
+  - パッケージング設定の更新とスキル導入ドキュメントの整備 (#64)
 
 ---
 

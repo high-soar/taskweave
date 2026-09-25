@@ -18,6 +18,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [Taskweave Project Agent Guidelines](AGENTS.md) - Taskweave のエージェントと開発者が共有するプロジェクト運用指針
 - [開発ルール](docs/development/index.md) - Taskweave の人間開発者向けルールのインデックス
 - [人向け開発ルール](docs/development/rules.md) - Taskweave の人間開発者が仕様、実装、レビュー、Git 運用を進めるときの共通ルール
+- [AI エージェント向け CLI スキルの設計と先行事例調査](docs/research/agent-skills-survey.md) - Playwright CLI や Agent Skills 標準の調査に基づき、CLI ツールを AI エージェントに操作させるためのスキル構成、トークン効率化、および展開アーキテクチャをまとめた調査ノート
 - [実務シナリオ 1: 新機能スプリントでの見積超過・手戻りと納期危機](docs/scenarios/01-overrun-and-replan.md) - 認証基盤リプレイスで手戻り工数超過が発生し、実績を記録して起算日再計画を行い、納期遅延診断とボトルネック特定を通じて改善点を探るシナリオ
 - [実務シナリオ 2: リリース直前のキースタッフ突発病欠と属人化の壁](docs/scenarios/02-sudden-absence-and-skills.md) - クラウドインフラ移行で唯一のインフラ担当者が突発病欠し、スキル制約下での代替割当や属人化ボトルネックを再計画で検証するシナリオ
 - [実務シナリオ 3: 本番障害による緊急割り込みタスクとスコープ調整](docs/scenarios/03-emergency-interruption.md) - 通常スプリント中に本番P0インシデントが発生し、緊急パッチタスクの割り込みと既存タスクの後ろ倒し・スコープ外トリアージを検証するシナリオ
@@ -38,8 +39,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 - [absences](#tag-absences)
 - [actuals](#tag-actuals)
+- [ai-agent](#tag-ai-agent)
 - [ai-agents](#tag-ai-agents)
 - [apply](#tag-apply)
+- [architecture](#tag-architecture)
 - [bottleneck](#tag-bottleneck)
 - [calendar](#tag-calendar)
 - [capacity](#tag-capacity)
@@ -69,7 +72,9 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [part-time](#tag-part-time)
 - [plan](#tag-plan)
 - [planning](#tag-planning)
+- [playwright-cli](#tag-playwright-cli)
 - [priority](#tag-priority)
+- [progressive-disclosure](#tag-progressive-disclosure)
 - [project](#tag-project)
 - [project-rules](#tag-project-rules)
 - [replanning](#tag-replanning)
@@ -99,6 +104,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 - [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 
+### Tag: ai-agent
+
+- [AI エージェント向け CLI スキルの設計と先行事例調査](docs/research/agent-skills-survey.md) - Playwright CLI や Agent Skills 標準の調査に基づき、CLI ツールを AI エージェントに操作させるためのスキル構成、トークン効率化、および展開アーキテクチャをまとめた調査ノート
+
 ### Tag: ai-agents
 
 - [Taskweave Project Agent Guidelines](AGENTS.md) - Taskweave のエージェントと開発者が共有するプロジェクト運用指針
@@ -106,6 +115,10 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: apply
 
 - [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
+
+### Tag: architecture
+
+- [AI エージェント向け CLI スキルの設計と先行事例調査](docs/research/agent-skills-survey.md) - Playwright CLI や Agent Skills 標準の調査に基づき、CLI ツールを AI エージェントに操作させるためのスキル構成、トークン効率化、および展開アーキテクチャをまとめた調査ノート
 
 ### Tag: bottleneck
 
@@ -228,9 +241,17 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 - [Taskweave プロダクトロードマップ & マイルストーン](ROADMAP.md) - Taskweave の全体目標、開発マイルストーン、将来の検討事項
 
+### Tag: playwright-cli
+
+- [AI エージェント向け CLI スキルの設計と先行事例調査](docs/research/agent-skills-survey.md) - Playwright CLI や Agent Skills 標準の調査に基づき、CLI ツールを AI エージェントに操作させるためのスキル構成、トークン効率化、および展開アーキテクチャをまとめた調査ノート
+
 ### Tag: priority
 
 - [実務シナリオ 3: 本番障害による緊急割り込みタスクとスコープ調整](docs/scenarios/03-emergency-interruption.md) - 通常スプリント中に本番P0インシデントが発生し、緊急パッチタスクの割り込みと既存タスクの後ろ倒し・スコープ外トリアージを検証するシナリオ
+
+### Tag: progressive-disclosure
+
+- [AI エージェント向け CLI スキルの設計と先行事例調査](docs/research/agent-skills-survey.md) - Playwright CLI や Agent Skills 標準の調査に基づき、CLI ツールを AI エージェントに操作させるためのスキル構成、トークン効率化、および展開アーキテクチャをまとめた調査ノート
 
 ### Tag: project
 
@@ -281,6 +302,7 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 ### Tag: skills
 
+- [AI エージェント向け CLI スキルの設計と先行事例調査](docs/research/agent-skills-survey.md) - Playwright CLI や Agent Skills 標準の調査に基づき、CLI ツールを AI エージェントに操作させるためのスキル構成、トークン効率化、および展開アーキテクチャをまとめた調査ノート
 - [実務シナリオ 2: リリース直前のキースタッフ突発病欠と属人化の壁](docs/scenarios/02-sudden-absence-and-skills.md) - クラウドインフラ移行で唯一のインフラ担当者が突発病欠し、スキル制約下での代替割当や属人化ボトルネックを再計画で検証するシナリオ
 
 ### Tag: spec
