@@ -4,7 +4,7 @@ title: Taskweave 仕様書
 description: Taskweave の仕様書と仕様書ライフサイクルの案内
 tags: [specifications, documentation, index]
 status: stable
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T03:13:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T02:25:00Z }
 ---
 
 # Taskweave 仕様書 (Specs)
@@ -54,7 +54,7 @@ specs/
 | [`002-okf-document-management.md`](002-okf-document-management.md) | OKF 文書管理とタグインデックス                       | `Accepted`    | -                                                                                                                                                                                                                                                                                           | Git 管理 Markdown の frontmatter、タグ集約 index、検査 CLI の仕様                                 |
 | [`003-scheduling-engine.md`](003-scheduling-engine.md)             | 計算エンジンの入出力および制約モデル仕様             | `Draft`       | [#12](https://github.com/high-soar/taskweave/issues/12), [#13](https://github.com/high-soar/taskweave/issues/13), [#14](https://github.com/high-soar/taskweave/issues/14), [#15](https://github.com/high-soar/taskweave/issues/15), [#16](https://github.com/high-soar/taskweave/issues/16) | Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様 |
 | [`004-actuals-and-replanning.md`](004-actuals-and-replanning.md)   | 実績工数・個別不在の原本スキーマおよび論理整合性仕様 | `Implemented` | [#25](https://github.com/high-soar/taskweave/issues/25)                                                                                                                                                                                                                                     | actuals.yaml および calendar.yaml の absences の原本スキーマ定義と論理整合性検証ルール            |
-| [`005-agent-cli-and-reporting.md`](005-agent-cli-and-reporting.md) | エージェント CLI & レポーティング仕様                | `Accepted`    | [#40](https://github.com/high-soar/taskweave/issues/40), [#41](https://github.com/high-soar/taskweave/issues/41), [#42](https://github.com/high-soar/taskweave/issues/42), [#43](https://github.com/high-soar/taskweave/issues/43)                                                          | 原本初期計画コマンド (taskweave plan)、可視化出力、実績記録、および再計画確定ワークフローの仕様   |
+| [`005-agent-cli-and-reporting.md`](005-agent-cli-and-reporting.md) | エージェント CLI & レポーティング仕様                | `Implemented` | [#40](https://github.com/high-soar/taskweave/issues/40), [#41](https://github.com/high-soar/taskweave/issues/41), [#42](https://github.com/high-soar/taskweave/issues/42), [#43](https://github.com/high-soar/taskweave/issues/43), [#45](https://github.com/high-soar/taskweave/issues/45) | 原本初期計画コマンド (taskweave plan)、可視化出力、実績記録、および再計画確定ワークフローの仕様   |
 
 ---
 
