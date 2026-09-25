@@ -14,7 +14,6 @@ import argparse
 import datetime
 import json
 from pathlib import Path
-import re
 import shutil
 import sys
 from typing import Any
@@ -22,22 +21,9 @@ import yaml
 
 from taskweave.validator import (
     ProjectValidationResult,
-    _get_error_line,
-    _get_error_path,
-    _get_node_line,
-    validate_actuals,
-    validate_calendar,
-    validate_logical_integrity,
-    validate_members,
     validate_project_data,
     validate_tasks,
 )
-
-FILES = [
-    ("members.yaml", validate_members),
-    ("tasks.yaml", validate_tasks),
-    ("calendar.yaml", validate_calendar),
-]
 
 
 def load_project_or_exit(dir_path: str | Path) -> ProjectValidationResult | None:
@@ -47,7 +33,8 @@ def load_project_or_exit(dir_path: str | Path) -> ProjectValidationResult | None
     """
     res = validate_project_data(dir_path)
     if not res.valid:
-        for err in res.formatted_errors:
+        err_list = res.formatted_errors or res.errors
+        for err in err_list:
             sys.stderr.write(f"{err}\n")
         return None
     return res

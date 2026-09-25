@@ -54,8 +54,6 @@ def _get_error_path(error_msg: str) -> list[str | int]:
             result.append(int(p))
         else:
             result.append(p)
-    if result and result[0] == "actuals":
-        result = result[1:]
     return result
 
 
@@ -101,6 +99,13 @@ def _get_error_line(doc_node: yaml.Node | None, error_msg: str, parse_err: yaml.
             line = _get_node_line(doc_node, path[:length])
             if line is not None:
                 return line
+        # actuals.yaml でルートキーが省略されている形式の場合、先頭の 'actuals' を除いたサブパスでも探索
+        if path and path[0] == "actuals":
+            sub_path = path[1:]
+            for length in range(len(sub_path), 0, -1):
+                line = _get_node_line(doc_node, sub_path[:length])
+                if line is not None:
+                    return line
         if hasattr(doc_node, "start_mark"):
             return doc_node.start_mark.line + 1
 
@@ -817,125 +822,76 @@ def resolve_task_progress(
     return resolved
 
 
+def _load_and_validate_file(
+    file_path: Path,
+    validator_func: Any,
+    doc_nodes: dict[str, yaml.Node | None],
+    errors: list[str],
+    formatted_errors: list[str],
+    optional: bool = False,
+) -> tuple[bool, Any]:
+    """単一の原本 YAML ファイルを読み込み、構文・スキーマを検証して行番号付きエラーを収集する."""
+    file_name = file_path.name
+    if optional and not file_path.exists():
+        return True, None
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+        parse_err: yaml.YAMLError | None = None
+        doc_node: yaml.Node | None = None
+        try:
+            doc_node = yaml.compose(content)
+        except yaml.YAMLError as y_err:
+            parse_err = y_err
+        doc_nodes[file_name] = doc_node
+
+        res = validator_func(content)
+        if not res.valid:
+            errors.extend(res.errors)
+            for err in res.errors:
+                line = _get_error_line(doc_node, err, parse_err)
+                formatted_errors.append(f"{file_name}:{line}: {err}")
+            return False, res.data
+        return True, res.data
+    except Exception as err:
+        errors.append(f"{file_name} 読み込み失敗: {err}")
+        formatted_errors.append(f"{file_name}:1: 読み込み失敗: {err}")
+        return False, None
+
+
 def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
     """プロジェクト原本 YAML ディレクトリから members, tasks, calendar, actuals を読み込んで一括検証する."""
     p = Path(dir_path)
     errors: list[str] = []
     formatted_errors: list[str] = []
     all_valid = True
-
-    members_data = None
-    tasks_data = None
-    calendar_data = None
-    actuals_data = None
-    resolved_progress = None
     doc_nodes: dict[str, yaml.Node | None] = {}
 
-    # members.yaml
-    members_file = "members.yaml"
-    members_path = p / members_file
-    try:
-        content = members_path.read_text(encoding="utf-8")
-        parse_err = None
-        doc_node = None
-        try:
-            doc_node = yaml.compose(content)
-        except yaml.YAMLError as y_err:
-            parse_err = y_err
-        doc_nodes[members_file] = doc_node
-
-        res = validate_members(content)
-        if not res.valid:
-            all_valid = False
-            errors.extend(res.errors)
-            for err in res.errors:
-                line = _get_error_line(doc_node, err, parse_err)
-                formatted_errors.append(f"{members_file}:{line}: {err}")
-        members_data = res.data
-    except Exception as err:
+    ok, members_data = _load_and_validate_file(
+        p / "members.yaml", validate_members, doc_nodes, errors, formatted_errors
+    )
+    if not ok:
         all_valid = False
-        errors.append(f"{members_file} 読み込み失敗: {err}")
-        formatted_errors.append(f"{members_file}:1: 読み込み失敗: {err}")
 
-    # tasks.yaml
-    tasks_file = "tasks.yaml"
-    tasks_path = p / tasks_file
-    try:
-        content = tasks_path.read_text(encoding="utf-8")
-        parse_err = None
-        doc_node = None
-        try:
-            doc_node = yaml.compose(content)
-        except yaml.YAMLError as y_err:
-            parse_err = y_err
-        doc_nodes[tasks_file] = doc_node
-
-        res = validate_tasks(content)
-        if not res.valid:
-            all_valid = False
-            errors.extend(res.errors)
-            for err in res.errors:
-                line = _get_error_line(doc_node, err, parse_err)
-                formatted_errors.append(f"{tasks_file}:{line}: {err}")
-        tasks_data = res.data
-    except Exception as err:
+    ok, tasks_data = _load_and_validate_file(
+        p / "tasks.yaml", validate_tasks, doc_nodes, errors, formatted_errors
+    )
+    if not ok:
         all_valid = False
-        errors.append(f"{tasks_file} 読み込み失敗: {err}")
-        formatted_errors.append(f"{tasks_file}:1: 読み込み失敗: {err}")
 
-    # calendar.yaml
-    calendar_file = "calendar.yaml"
-    calendar_path = p / calendar_file
-    try:
-        content = calendar_path.read_text(encoding="utf-8")
-        parse_err = None
-        doc_node = None
-        try:
-            doc_node = yaml.compose(content)
-        except yaml.YAMLError as y_err:
-            parse_err = y_err
-        doc_nodes[calendar_file] = doc_node
-
-        res = validate_calendar(content)
-        if not res.valid:
-            all_valid = False
-            errors.extend(res.errors)
-            for err in res.errors:
-                line = _get_error_line(doc_node, err, parse_err)
-                formatted_errors.append(f"{calendar_file}:{line}: {err}")
-        calendar_data = res.data
-    except Exception as err:
+    ok, calendar_data = _load_and_validate_file(
+        p / "calendar.yaml", validate_calendar, doc_nodes, errors, formatted_errors
+    )
+    if not ok:
         all_valid = False
-        errors.append(f"{calendar_file} 読み込み失敗: {err}")
-        formatted_errors.append(f"{calendar_file}:1: 読み込み失敗: {err}")
 
-    # actuals.yaml (オプショナル)
-    actuals_file = "actuals.yaml"
-    actuals_path = p / actuals_file
-    if actuals_path.exists():
-        try:
-            content = actuals_path.read_text(encoding="utf-8")
-            parse_err = None
-            doc_node = None
-            try:
-                doc_node = yaml.compose(content)
-            except yaml.YAMLError as y_err:
-                parse_err = y_err
-            doc_nodes[actuals_file] = doc_node
+    ok, actuals_data = _load_and_validate_file(
+        p / "actuals.yaml", validate_actuals, doc_nodes, errors, formatted_errors, optional=True
+    )
+    if not ok:
+        all_valid = False
 
-            res = validate_actuals(content)
-            if not res.valid:
-                all_valid = False
-                errors.extend(res.errors)
-                for err in res.errors:
-                    line = _get_error_line(doc_node, err, parse_err)
-                    formatted_errors.append(f"{actuals_file}:{line}: {err}")
-            actuals_data = res.data
-        except Exception as err:
-            all_valid = False
-            errors.append(f"{actuals_file} 読み込み失敗: {err}")
-            formatted_errors.append(f"{actuals_file}:1: 読み込み失敗: {err}")
-
+    resolved_progress = None
     if all_valid and members_data is not None and tasks_data is not None and calendar_data is not None:
         logical_res = validate_logical_integrity(
             members_data, tasks_data, calendar_data, actuals=actuals_data

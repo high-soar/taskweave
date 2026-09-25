@@ -161,8 +161,8 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
     - `--dry-run`: 差分サマリと適用予定の変更内容を表示するのみで、ファイルへの書き込みを行わないフラグ（任意）。
     - `--update-tasks`: 再計画による納期緩和推奨（recommendations）および担当者変更（reassignments）を原本 `tasks.yaml` に反映するフラグ（任意）。
   - 処理フローと安全性 (AC-1, AC-2, AC-4):
-    1. 事前バリデーション: `validate_directory` でディレクトリ内の原本 YAML を検証。構文または論理整合性エラーがあれば stderr に出力し終了コード `1` で中断する。
-    2. 再計画実行: `replan(data_dir, as_of_date, baseline_schedule)` を呼び出し、再計画スケジュールと差分（`diff`）を算出する。ステータスが OPTIMAL / FEASIBLE でない場合は stderr に出力し終了コード `1` で中断する。
+    1. 事前バリデーション & 原本データ取得: `load_project_or_exit` でディレクトリ内の原本 YAML を検証・取得。構文または論理整合性エラーがあれば stderr に出力し終了コード `1` で中断する。
+    2. 再計画実行: `replan(data_dir, as_of_date, baseline_schedule, project_data=project_res)` を呼び出し、単一パスで取得済みの検証データを再利用して再計画スケジュールと差分（`diff`）を算出する。ステータスが OPTIMAL / FEASIBLE でない場合は stderr に出力し終了コード `1` で中断する。
     3. 差分サマリ表示 (AC-2): ベースラインからの Makespan 変化（スリップ日数）、遅延タスク一覧、納期緩和推奨（存在する場合）を標準出力に表示する。
     4. `--dry-run` 判定: `--dry-run` が指定されている場合、ファイル更新を行わず `[Dry Run] ベースラインの更新はスキップされました。` を出力して終了コード `0` で正常終了する。
     5. バックアップ作成と安全な書き込み (AC-4):
