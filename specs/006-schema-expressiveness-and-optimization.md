@@ -3,7 +3,7 @@ type: spec
 title: スキーマ表現力 & 最適化強化仕様
 description: 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 tags: [schema, symmetry, deprecation, actuals, optimization, milestone-5]
-status: accepted
+status: implemented
 issues: [50, 51, 52, 53, 54]
 generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
 ---
