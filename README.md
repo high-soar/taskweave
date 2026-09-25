@@ -123,6 +123,9 @@ taskweave plan data --format mermaid --output plan.mermaid
 # 初期計画を Markdown テーブル形式で出力
 taskweave plan data --format markdown
 
+# メンバー間の負荷（稼働率）平準化を有効にして初期計画を計算
+taskweave plan data --load-balance
+
 # 実績工数および進捗ステータスの安全な記録・追記
 taskweave log 2026-09-08 data --member alice --task task-setup --hours 8.0 --remaining 0.0 --status completed
 

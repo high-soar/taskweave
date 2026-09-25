@@ -2128,3 +2128,152 @@ def test_member_workdays_horizon_auto_calculation_for_part_time_member():
     assert t1["actual_active_days"] == 7
     # 7 週目の月曜日に終了
     assert t1["end_date"] == "2026-10-19"
+
+
+def test_load_balance_distributes_tasks_evenly_among_same_skill_members():
+    """AC-1, AC-5: 同一スキルを持つ複数メンバー間で、load_balance=True の場合にタスクと工数が均等に分散されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t3", "title": "Task 3", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t4", "title": "Task 4", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    start_date = datetime.date(2026, 9, 7)
+
+    # 1. load_balance=False (デフォルト): ベースライン（探索順により片寄る）
+    res_default = solve_schedule(members, tasks, calendar, start_date, load_balance=False)
+    assert res_default["status"] == "OPTIMAL"
+    hours_default = {"alice": 0.0, "bob": 0.0}
+    for t in res_default["tasks"].values():
+        hours_default[t["assigned_to"]] += t["estimate_hours"]
+
+    # 2. load_balance=True: 平準化（各 16.0h、2タスクずつ配分）
+    res_balanced = solve_schedule(members, tasks, calendar, start_date, load_balance=True)
+    assert res_balanced["status"] == "OPTIMAL"
+    hours_balanced = {"alice": 0.0, "bob": 0.0}
+    for t in res_balanced["tasks"].values():
+        hours_balanced[t["assigned_to"]] += t["estimate_hours"]
+
+    assert hours_balanced["alice"] == 16.0
+    assert hours_balanced["bob"] == 16.0
+    # 平準化により格差が縮小していること
+    disparity_default = abs(hours_default["alice"] - hours_default["bob"])
+    disparity_balanced = abs(hours_balanced["alice"] - hours_balanced["bob"])
+    assert disparity_balanced < disparity_default or disparity_default == 0
+
+
+def test_load_balance_capacity_aware_with_member_workdays():
+    """AC-2: メンバー個別 workdays に基づき、単なる工数ではなく稼働率（総工数 / 利用可能キャパシティ）で平準化されること."""
+    # Alice: 週5日稼働 (40h/週)
+    # Bob: 週3日稼働 (24h/週, mon, wed, fri)
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "workdays": ["mon", "tue", "wed", "thu", "fri"], "skills": ["backend"]},
+        {"id": "bob", "name": "Bob (週3日)", "max_capacity": 1.0, "workdays": ["mon", "wed", "fri"], "skills": ["backend"]},
+    ]
+    # 総工数 32.0h:
+    # キャパシティ比率: Alice 40h (62.5%), Bob 24h (37.5%)
+    # 理想配分: Alice = 32 * 40/64 = 20.0h, Bob = 32 * 24/64 = 12.0h
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 12.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t3", "title": "Task 3", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t4", "title": "Task 4", "estimate_hours": 4.0, "required_skills": ["backend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    start_date = datetime.date(2026, 9, 7)
+
+    res = solve_schedule(members, tasks, calendar, start_date, load_balance=True)
+    assert res["status"] == "OPTIMAL"
+
+    hours = {"alice": 0.0, "bob": 0.0}
+    for t in res["tasks"].values():
+        hours[t["assigned_to"]] += t["estimate_hours"]
+
+    # キャパシティに応じた適切な配分 (Alice: 20h, Bob: 12h)
+    assert hours["alice"] == 20.0
+    assert hours["bob"] == 12.0
+
+
+def test_load_balance_does_not_extend_makespan():
+    """AC-3: 負荷平準化を有効にしても、Makespan 最小化が最優先され工期が延伸されないこと."""
+    # Alice: 8h/day, Bob: 4h/day (max_capacity 0.5)
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob (時短)", "max_capacity": 0.5, "skills": ["backend"]},
+    ]
+    # 直列の2タスク (t1 -> t2)
+    # Alice が担当すれば 2日 + 2日 = 4日で完了
+    # もし Bob が t2 を担当すると 2日 + 4日 = 6日に延びてしまう
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 16.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t2", "title": "Task 2", "estimate_hours": 16.0, "required_skills": ["backend"], "depends_on": ["t1"]},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    start_date = datetime.date(2026, 9, 7)
+
+    # load_balance=True でも工期 4 日が厳格に維持されること
+    res = solve_schedule(members, tasks, calendar, start_date, load_balance=True)
+    assert res["status"] == "OPTIMAL"
+    assert res["makespan_workdays"] == 4
+    # 工期最短化のため t1, t2 ともに Alice が担当
+    assert res["tasks"]["t1"]["assigned_to"] == "alice"
+    assert res["tasks"]["t2"]["assigned_to"] == "alice"
+
+
+def test_load_balance_replan_distributes_future_tasks():
+    """AC-4: 再計画 (_solve_replan) においても load_balance=True で未来タスクが平準化されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+        {"id": "t3", "title": "Task 3", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-07", "member_id": "alice", "task_id": "t1", "hours": 8.0},
+        ],
+        "task_progress": [
+            {"task_id": "t1", "remaining_hours": 0.0, "status": "completed"},
+        ],
+    }
+    start_date = datetime.date(2026, 9, 7)
+    as_of = datetime.date(2026, 9, 8)
+
+    # 再計画で未来の2タスク (t2, t3: 各 8h) が Alice と Bob に平準化されること
+    res = solve_schedule(
+        members,
+        tasks,
+        calendar,
+        start_date,
+        as_of_date=as_of,
+        actuals_data=actuals,
+        load_balance=True,
+    )
+    assert res["status"] == "OPTIMAL"
+    assert res["tasks"]["t2"]["assigned_to"] != res["tasks"]["t3"]["assigned_to"]
+
