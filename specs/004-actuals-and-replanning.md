@@ -139,7 +139,6 @@ data/
 日々の作業実績工数と、必要に応じたタスクの最新進捗状況を記録します。
 
 > [!NOTE]
-> [!NOTE]
 > **推奨形式と非推奨方針 (Milestone 5)**:
 > `actuals.yaml` は、他の原本（`members.yaml`, `calendar.yaml`, `tasks.yaml`）と対称性を統一した `actuals:` ルートキーでラップした形式（`actuals:\n  work_logs: ...`）を推奨・標準形式とします。
 > トップレベル直下に `work_logs` / `task_progress` を配置する旧形式も後方互換性のため透過的に解釈されますが、バリデーション時に非推奨警告（Deprecation Warning）が出力されます（詳細は `specs/006-schema-expressiveness-and-optimization.md` 参照）。

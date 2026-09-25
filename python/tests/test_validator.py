@@ -1136,6 +1136,31 @@ task_progress:
         assert len(res.data["work_logs"]) == 1
         assert len(res.data["task_progress"]) == 1
 
+    def test_validate_actuals_empty_dict_has_no_deprecation_warning(self):
+        """[R4]: 空の辞書や無関係キーのみの場合は非推奨警告を発行しないこと."""
+        res = validate_actuals("{}")
+        assert res.valid is True
+        assert res.warnings == []
+
+    def test_validate_actuals_mixed_root_key_and_top_level_rejected(self):
+        """[R1]: actuals: ルートキーとトップレベル直下のキーが混在する場合はエラーとなること."""
+        yaml_content = """
+actuals:
+  work_logs:
+    - date: "2026-09-08"
+      member_id: "alice"
+      task_id: "task-api"
+      hours: 4.0
+work_logs:
+  - date: "2026-09-09"
+    member_id: "alice"
+    task_id: "task-api"
+    hours: 2.0
+"""
+        res = validate_actuals(yaml_content)
+        assert res.valid is False
+        assert any("同時に存在します" in e for e in res.errors)
+
     def test_validate_project_data_with_root_key_has_no_warnings(self, tmp_path):
         """AC-3: プロジェクト検証で actuals: ルートキー付き actuals.yaml を読み込んだ場合は warnings なしであること."""
         (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")

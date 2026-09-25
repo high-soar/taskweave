@@ -1553,6 +1553,24 @@ class TestSinglePassDataPipeline:
         captured = capsys.readouterr()
         assert captured.err == ""
 
+        # エラーと警告が同時に存在する場合に両方が出力され、has_errors が True となること ([R2])
+        (basic_project_files / "actuals.yaml").write_text(
+            """work_logs:
+  - date: '2026-09-08'
+    member_id: alice
+    task_id: nonexistent-task
+    hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        has_errors = validate_directory(basic_project_files)
+        assert has_errors is True
+        captured = capsys.readouterr()
+        assert "nonexistent-task" in captured.err
+        assert "[WARNING]" in captured.err
+        assert "非推奨" in captured.err
+        assert "ヒント" in captured.err
+
 
 
 

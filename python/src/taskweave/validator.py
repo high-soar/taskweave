@@ -329,8 +329,11 @@ def validate_actuals(yaml_string: str) -> ValidationResult:
         if not isinstance(inner, dict):
             errors.append("actuals: オブジェクトが必須です")
             return ValidationResult(valid=False, errors=errors, warnings=warnings, data={"work_logs": [], "task_progress": []})
+        if "work_logs" in parsed or "task_progress" in parsed:
+            errors.append("actuals.yaml: 'actuals:' ルートキーとトップレベル直下の 'work_logs' または 'task_progress' が同時に存在します")
+            return ValidationResult(valid=False, errors=errors, warnings=warnings, data={"work_logs": [], "task_progress": []})
         parsed = inner
-    else:
+    elif "work_logs" in parsed or "task_progress" in parsed:
         warnings.append(
             "actuals.yaml: トップレベル直下に 'work_logs' または 'task_progress' を配置する形式は非推奨です。'actuals:' ルートキー配下に配置してください。"
         )

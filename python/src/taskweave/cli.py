@@ -51,7 +51,6 @@ def validate_directory(dir_path: str | Path) -> bool:
         err_list = res.formatted_errors or res.errors
         for err in err_list:
             sys.stderr.write(f"{err}\n")
-        return True
 
     if res.warnings:
         for w in res.warnings:
@@ -60,7 +59,7 @@ def validate_directory(dir_path: str | Path) -> bool:
             "ヒント: 'actuals.yaml' のルートに 'actuals:' キーを追加することで、原本スキーマの対称性が統一され警告が解消されます。\n"
         )
 
-    return False
+    return not res.valid
 
 
 def format_plan_summary(plan_data: dict[str, Any]) -> str:
