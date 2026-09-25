@@ -41,13 +41,26 @@ def load_project_or_exit(dir_path: str | Path) -> ProjectValidationResult | None
 
 
 def validate_directory(dir_path: str | Path) -> bool:
-    """ディレクトリ内の原本 YAML を検証し、エラーがあれば stderr に出力する.
+    """ディレクトリ内の原本 YAML を検証し、エラーまたは警告があれば stderr に出力する.
 
     Returns:
         bool: エラーが存在した場合は True、すべて成功した場合は False
     """
-    res = load_project_or_exit(dir_path)
-    return res is None
+    res = validate_project_data(dir_path)
+    if not res.valid:
+        err_list = res.formatted_errors or res.errors
+        for err in err_list:
+            sys.stderr.write(f"{err}\n")
+        return True
+
+    if res.warnings:
+        for w in res.warnings:
+            sys.stderr.write(f"[WARNING] {w}\n")
+        sys.stderr.write(
+            "ヒント: 'actuals.yaml' のルートに 'actuals:' キーを追加することで、原本スキーマの対称性が統一され警告が解消されます。\n"
+        )
+
+    return False
 
 
 def format_plan_summary(plan_data: dict[str, Any]) -> str:

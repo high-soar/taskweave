@@ -228,8 +228,8 @@ def record_work_log(
             }
             task_progress.append(new_tp)
 
-    # 6. 事前スキーマ検証および論理整合性検証
-    candidate_data = {"actuals": actuals_dict} if has_root_key else actuals_dict
+    # 6. 事前スキーマ検証および論理整合性検証（常に actuals: ルートキー付きの正規化形式で書き出す）
+    candidate_data = {"actuals": actuals_dict}
     yaml_str = yaml.safe_dump(candidate_data, sort_keys=False, allow_unicode=True)
 
     act_res = validate_actuals(yaml_str)

@@ -150,7 +150,9 @@ task_progress:
         )
         result = run_cli("validate", str(basic_project_files))
         assert result.returncode == 0
-        assert result.stderr == ""
+        assert "[WARNING]" in result.stderr
+        assert "非推奨" in result.stderr
+        assert "ヒント" in result.stderr
         assert "検証に成功" in result.stdout
 
     def test_valid_actuals_with_root_key_passes(self, basic_project_files):
@@ -705,7 +707,8 @@ class TestLogCLI:
             "status": "completed",
         }
 
-    def test_log_preserves_flat_actuals_structure(self, basic_project_files):
+    def test_log_normalizes_flat_actuals_to_root_key(self, basic_project_files):
+        """AC-5: 既存のトップレベル形式 actuals.yaml に対しても、log コマンド実行時に常に actuals: ルートキー付き形式で正規化書き出しされること."""
         (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
         actuals_path = basic_project_files / "actuals.yaml"
         actuals_path.write_text(
@@ -730,9 +733,9 @@ class TestLogCLI:
 
         import yaml
         content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
-        assert "actuals" not in content
-        assert "work_logs" in content
-        assert len(content["work_logs"]) == 2
+        assert "actuals" in content
+        assert "work_logs" not in content
+        assert len(content["actuals"]["work_logs"]) == 2
 
     def test_log_rejects_unknown_member(self, basic_project_files):
         (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
@@ -1505,6 +1508,51 @@ class TestSinglePassDataPipeline:
         assert res_err is None
         captured_err = capsys.readouterr()
         assert "tasks.yaml:" in captured_err.err
+
+    def test_validate_directory_helper(self, basic_project_files, capsys):
+        from taskweave.cli import validate_directory
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        # 警告なし (actuals なし)
+        has_errors = validate_directory(basic_project_files)
+        assert has_errors is False
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+        # 警告あり (トップレベル actuals.yaml)
+        (basic_project_files / "actuals.yaml").write_text(
+            """work_logs:
+  - date: '2026-09-08'
+    member_id: alice
+    task_id: task-api
+    hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        has_errors = validate_directory(basic_project_files)
+        assert has_errors is False
+        captured = capsys.readouterr()
+        assert "[WARNING]" in captured.err
+        assert "非推奨" in captured.err
+        assert "ヒント" in captured.err
+
+        # 警告なし (actuals: ルートキー付き actuals.yaml)
+        (basic_project_files / "actuals.yaml").write_text(
+            """actuals:
+  work_logs:
+    - date: '2026-09-08'
+      member_id: alice
+      task_id: task-api
+      hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        has_errors = validate_directory(basic_project_files)
+        assert has_errors is False
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
 
 
 

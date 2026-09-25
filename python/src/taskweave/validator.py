@@ -23,6 +23,7 @@ class ValidationResult:
 
     valid: bool
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     data: Any = None
 
 
@@ -33,6 +34,7 @@ class ProjectValidationResult:
     valid: bool
     errors: list[str] = field(default_factory=list)
     formatted_errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     members: list[dict[str, Any]] | None = None
     tasks: list[dict[str, Any]] | None = None
     calendar: dict[str, Any] | None = None
@@ -312,21 +314,26 @@ def validate_tasks(yaml_string: str) -> ValidationResult:
 def validate_actuals(yaml_string: str) -> ValidationResult:
     """actuals.yaml のスキーマを検証する."""
     errors: list[str] = []
+    warnings: list[str] = []
     parsed = parse_yaml(yaml_string, errors)
     if parsed is None:
-        return ValidationResult(valid=False, errors=errors, data={"work_logs": [], "task_progress": []})
+        return ValidationResult(valid=False, errors=errors, warnings=warnings, data={"work_logs": [], "task_progress": []})
 
     if not isinstance(parsed, dict):
         errors.append("actuals: オブジェクトが必須です")
-        return ValidationResult(valid=False, errors=errors, data={"work_logs": [], "task_progress": []})
+        return ValidationResult(valid=False, errors=errors, warnings=warnings, data={"work_logs": [], "task_progress": []})
 
     # actuals: ルートキーでラップされている場合はアンラップ
     if "actuals" in parsed:
         inner = parsed["actuals"]
         if not isinstance(inner, dict):
             errors.append("actuals: オブジェクトが必須です")
-            return ValidationResult(valid=False, errors=errors, data={"work_logs": [], "task_progress": []})
+            return ValidationResult(valid=False, errors=errors, warnings=warnings, data={"work_logs": [], "task_progress": []})
         parsed = inner
+    else:
+        warnings.append(
+            "actuals.yaml: トップレベル直下に 'work_logs' または 'task_progress' を配置する形式は非推奨です。'actuals:' ルートキー配下に配置してください。"
+        )
 
     work_logs: list[dict[str, Any]] = []
     if "work_logs" in parsed:
@@ -422,6 +429,7 @@ def validate_actuals(yaml_string: str) -> ValidationResult:
     return ValidationResult(
         valid=len(errors) == 0,
         errors=errors,
+        warnings=warnings,
         data={"work_logs": work_logs, "task_progress": task_progress},
     )
 
@@ -828,6 +836,7 @@ def _load_and_validate_file(
     doc_nodes: dict[str, yaml.Node | None],
     errors: list[str],
     formatted_errors: list[str],
+    warnings: list[str] | None = None,
     optional: bool = False,
 ) -> tuple[bool, Any]:
     """単一の原本 YAML ファイルを読み込み、構文・スキーマを検証して行番号付きエラーを収集する."""
@@ -846,6 +855,9 @@ def _load_and_validate_file(
         doc_nodes[file_name] = doc_node
 
         res = validator_func(content)
+        if hasattr(res, "warnings") and res.warnings and warnings is not None:
+            warnings.extend(res.warnings)
+
         if not res.valid:
             errors.extend(res.errors)
             for err in res.errors:
@@ -864,29 +876,30 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
     p = Path(dir_path)
     errors: list[str] = []
     formatted_errors: list[str] = []
+    warnings: list[str] = []
     all_valid = True
     doc_nodes: dict[str, yaml.Node | None] = {}
 
     ok, members_data = _load_and_validate_file(
-        p / "members.yaml", validate_members, doc_nodes, errors, formatted_errors
+        p / "members.yaml", validate_members, doc_nodes, errors, formatted_errors, warnings=warnings
     )
     if not ok:
         all_valid = False
 
     ok, tasks_data = _load_and_validate_file(
-        p / "tasks.yaml", validate_tasks, doc_nodes, errors, formatted_errors
+        p / "tasks.yaml", validate_tasks, doc_nodes, errors, formatted_errors, warnings=warnings
     )
     if not ok:
         all_valid = False
 
     ok, calendar_data = _load_and_validate_file(
-        p / "calendar.yaml", validate_calendar, doc_nodes, errors, formatted_errors
+        p / "calendar.yaml", validate_calendar, doc_nodes, errors, formatted_errors, warnings=warnings
     )
     if not ok:
         all_valid = False
 
     ok, actuals_data = _load_and_validate_file(
-        p / "actuals.yaml", validate_actuals, doc_nodes, errors, formatted_errors, optional=True
+        p / "actuals.yaml", validate_actuals, doc_nodes, errors, formatted_errors, warnings=warnings, optional=True
     )
     if not ok:
         all_valid = False
@@ -917,6 +930,7 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
         valid=all_valid and len(errors) == 0,
         errors=errors,
         formatted_errors=formatted_errors,
+        warnings=warnings,
         members=members_data,
         tasks=tasks_data,
         calendar=calendar_data,

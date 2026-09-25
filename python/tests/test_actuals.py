@@ -161,3 +161,38 @@ def test_record_work_log_success_add_and_progress_auto_complete(project_dir: Pat
     assert tp["remaining_hours"] == 0.0
     assert tp["status"] == "completed"
 
+
+def test_record_work_log_migrates_top_level_actuals_to_root_key(project_dir: Path):
+    """AC-5: 既存のトップレベル形式 actuals.yaml に対しても、更新時に常に actuals: ルートキー付き形式で正規化書き出しされること."""
+    actuals_path = project_dir / "actuals.yaml"
+    actuals_path.write_text(
+        """work_logs:
+  - date: "2026-09-08"
+    member_id: alice
+    task_id: task-api
+    hours: 2.0
+task_progress:
+  - task_id: task-api
+    remaining_hours: 14.0
+    status: in_progress
+""",
+        encoding="utf-8",
+    )
+
+    success, errors = record_work_log(
+        dir_path=project_dir,
+        date="2026-09-09",
+        member_id="alice",
+        task_id="task-api",
+        hours=4.0,
+    )
+    assert success
+    assert not errors
+
+    raw = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+    assert "actuals" in raw
+    assert "work_logs" not in raw
+    assert len(raw["actuals"]["work_logs"]) == 2
+    assert len(raw["actuals"]["task_progress"]) == 1
+
+

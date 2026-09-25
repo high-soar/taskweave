@@ -1078,5 +1078,119 @@ class TestValidateProjectDataFormattedErrors:
         assert any(e.startswith("actuals.yaml:") and "未定義" in e for e in res.formatted_errors)
 
 
+class TestSchemaSymmetryAndDeprecationWarning:
+    """Milestone 5 Issue #50: 原本 YAML スキーマのルートキー対称性統一と非推奨警告のテスト (AC-1, AC-2, AC-3)."""
+
+    def test_validation_result_has_warnings_field(self):
+        """AC-1: ValidationResult および ProjectValidationResult に warnings フィールドが存在すること."""
+        from taskweave.validator import ValidationResult, ProjectValidationResult
+
+        vr = ValidationResult(valid=True)
+        assert hasattr(vr, "warnings")
+        assert vr.warnings == []
+
+        pvr = ProjectValidationResult(valid=True)
+        assert hasattr(pvr, "warnings")
+        assert pvr.warnings == []
+
+    def test_validate_actuals_with_root_key_has_no_warnings(self):
+        """AC-3: actuals: ルートキー形式の actuals.yaml は warnings なしで正常検証されること."""
+        yaml_content = """
+actuals:
+  work_logs:
+    - date: "2026-09-08"
+      member_id: "alice"
+      task_id: "task-api"
+      hours: 4.0
+  task_progress:
+    - task_id: "task-api"
+      remaining_hours: 12.0
+      status: "in_progress"
+"""
+        res = validate_actuals(yaml_content)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        assert res.warnings == []
+        assert len(res.data["work_logs"]) == 1
+        assert len(res.data["task_progress"]) == 1
+
+    def test_validate_actuals_top_level_has_deprecation_warning(self):
+        """AC-2: トップレベル形式の actuals.yaml は非推奨警告が warnings に格納され、透過的に正規化されること."""
+        yaml_content = """
+work_logs:
+  - date: "2026-09-08"
+    member_id: "alice"
+    task_id: "task-api"
+    hours: 4.0
+task_progress:
+  - task_id: "task-api"
+    remaining_hours: 12.0
+    status: "in_progress"
+"""
+        res = validate_actuals(yaml_content)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        assert len(res.warnings) == 1
+        assert "非推奨" in res.warnings[0]
+        assert "actuals:" in res.warnings[0]
+        assert len(res.data["work_logs"]) == 1
+        assert len(res.data["task_progress"]) == 1
+
+    def test_validate_project_data_with_root_key_has_no_warnings(self, tmp_path):
+        """AC-3: プロジェクト検証で actuals: ルートキー付き actuals.yaml を読み込んだ場合は warnings なしであること."""
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text(
+            """actuals:
+  work_logs:
+    - date: "2026-09-08"
+      member_id: alice
+      task_id: task-api
+      hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        assert res.warnings == []
+        assert res.actuals is not None
+        assert len(res.actuals["work_logs"]) == 1
+
+    def test_validate_project_data_top_level_has_deprecation_warning(self, tmp_path):
+        """AC-2: プロジェクト検証でトップレベル形式の actuals.yaml を読み込んだ際、warnings に非推奨警告が格納され透過的に正規化されること."""
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text(
+            """work_logs:
+  - date: "2026-09-08"
+    member_id: alice
+    task_id: task-api
+    hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        assert len(res.warnings) == 1
+        assert "非推奨" in res.warnings[0]
+        assert res.actuals is not None
+        assert len(res.actuals["work_logs"]) == 1
+
+    def test_validate_project_data_without_actuals_has_no_warnings(self, tmp_path):
+        """actuals.yaml が存在しない場合は warnings なしであること."""
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        res = validate_project_data(tmp_path)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        assert res.warnings == []
+
+
+
 
 
