@@ -26,10 +26,14 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [Taskweave](README.md) - コーディングエージェント向けのスケジュール調整ツール
 - [Taskweave プロダクトロードマップ & マイルストーン](ROADMAP.md) - Taskweave の全体目標、開発マイルストーン、将来の検討事項
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
+- [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
+- [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 - [OKF 文書管理とタグインデックス](specs/002-okf-document-management.md) - Git 管理下の Taskweave 文書に OKF frontmatter を適用し、タグ集約インデックスと自動検査を提供する仕様
 - [計算エンジンの入出力および制約モデル仕様](specs/003-scheduling-engine.md) - Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
 - [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 - [エージェント CLI & レポーティング仕様](specs/005-agent-cli-and-reporting.md) - 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 - [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 - [Taskweave 仕様書](specs/README.md) - Taskweave の仕様書と仕様書ライフサイクルの案内
 - [\[仕様書タイトル\]](specs/templates/spec-template.md) - \[この仕様の目的と概要を1行で要約\]
@@ -98,6 +102,8 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 - [実務シナリオ 1: 新機能スプリントでの見積超過・手戻りと納期危機](docs/scenarios/01-overrun-and-replan.md) - 認証基盤リプレイスで手戻り工数超過が発生し、実績を記録して起算日再計画を行い、納期遅延診断とボトルネック特定を通じて改善点を探るシナリオ
 - [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 - [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 
 ### Tag: ai-agents
 
@@ -131,6 +137,8 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 ### Tag: deprecation
 
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 - [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 
 ### Tag: development
@@ -182,6 +190,8 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: milestone-1
 
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
+- [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
+- [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 - [\[仕様書タイトル\]](specs/templates/spec-template.md) - \[この仕様の目的と概要を1行で要約\]
 
 ### Tag: milestone-2
@@ -199,6 +209,8 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: milestone-5
 
 - [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 
 ### Tag: milestones
 
@@ -210,6 +222,8 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 ### Tag: optimization
 
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 - [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 
 ### Tag: or-tools
@@ -272,7 +286,11 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: schema
 
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
+- [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
+- [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 - [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 - [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 
 ### Tag: scope
@@ -290,6 +308,8 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 ### Tag: symmetry
 
 - [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
+- [スキーマ表現力 & 最適化強化仕様](specs/006-schema-expressiveness-and-optimization.md) - 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 
 ### Tag: triage
 
@@ -305,6 +325,8 @@ Taskweave の通常プロジェクト文書を一覧します。タグは各文�
 
 ### Tag: yaml
 
+- [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
+- [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 - [原本 YAML スキーマ定義](specs/001-yaml-schema.md) - メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 - [実績工数・個別不在の原本スキーマ検証、起算日再計画、および差分・遅延診断仕様](specs/004-actuals-and-replanning.md) - actuals.yaml および calendar.yaml の原本スキーマ・論理整合性検証と、起算日（As-of Date）再計画アルゴリズム、ベースライン差分（Diff）算出と遅延原因診断仕様
 

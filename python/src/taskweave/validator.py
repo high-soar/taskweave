@@ -223,12 +223,41 @@ def validate_members(yaml_string: str) -> ValidationResult:
             else:
                 skills = raw_skills
 
-        members.append({
+        member_workdays: list[str] | None = None
+        if "workdays" in m:
+            raw_wd = m["workdays"]
+            if raw_wd is None or not isinstance(raw_wd, list):
+                errors.append(
+                    f"{prefix}.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります"
+                )
+            elif any(not isinstance(w, str) or w not in VALID_WORKDAYS for w in raw_wd):
+                invalid_items = [repr(w) for w in raw_wd if not isinstance(w, str) or w not in VALID_WORKDAYS]
+                errors.append(
+                    f"{prefix}.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります (不正な要素: {', '.join(invalid_items)})"
+                )
+            elif len(raw_wd) == 0:
+                errors.append(f"{prefix}.workdays: 少なくとも1つの有効な稼働曜日を指定する必要があります")
+            else:
+                seen_wd: set[str] = set()
+                has_dup = False
+                for w in raw_wd:
+                    if w in seen_wd:
+                        errors.append(f'{prefix}.workdays: "{w}" は重複しています')
+                        has_dup = True
+                    seen_wd.add(w)
+                if not has_dup:
+                    member_workdays = raw_wd
+
+        member_item: dict[str, Any] = {
             "id": m_id,
             "name": m_name,
             "max_capacity": max_capacity,
             "skills": skills,
-        })
+        }
+        if member_workdays is not None:
+            member_item["workdays"] = member_workdays
+
+        members.append(member_item)
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, data=members)
 
@@ -647,7 +676,31 @@ def validate_logical_integrity(
         if visited.get(task_id, 0) == 0:
             dfs(task_id, [])
 
-    # 3. 未定義スキル参照およびタスク割当メンバー整合性チェック
+    # 3. メンバー個別稼働曜日のカレンダー営業日整合性チェック (Issue #51 AC-2, [R1], [R4])
+    raw_cal_wd = calendar.get("workdays") if isinstance(calendar, dict) else None
+    cal_workdays_list = (
+        [w for w in raw_cal_wd if isinstance(w, str)]
+        if isinstance(raw_cal_wd, list)
+        else ["mon", "tue", "wed", "thu", "fri"]
+    )
+    cal_workdays_set = set(cal_workdays_list)
+    if isinstance(members, list):
+        for i, m in enumerate(members):
+            if not isinstance(m, dict):
+                continue
+            m_workdays = m.get("workdays")
+            if isinstance(m_workdays, list):
+                invalid_days = [w for w in m_workdays if not isinstance(w, str) or w not in cal_workdays_set]
+                if invalid_days:
+                    cal_str = ", ".join(cal_workdays_list)
+                    inv_str = ", ".join(repr(w) for w in invalid_days)
+                    m_id = m.get("id", f"index {i}")
+                    errors.append(
+                        f'members[{i}].workdays (メンバ: "{m_id}"): プロジェクトカレンダーの稼働曜日 ({cal_str}) に含まれない曜日 ({inv_str}) が指定されています。'
+                        f"解決のヒント: calendar.yaml の稼働曜日に曜日を追加するか、メンバの稼働曜日を見直してください"
+                    )
+
+    # 4. 未定義スキル参照およびタスク割当メンバー整合性チェック
     member_ids: set[str] = set()
     if isinstance(members, list):
         member_ids = {
@@ -1078,5 +1131,19 @@ def validate_schedule_inputs(
                 raise ValueError(
                     f"タスク '{t_id}' の推奨担当者 '{preferred_member}' (preferred_member) は必須スキル {sorted(req_skills)} をすべて保有していません。"
                 )
+
+    # メンバ個別稼働曜日の検証 (AC-2, [R2])
+    for m_id, member in members.items():
+        if "workdays" in member and member["workdays"] is not None:
+            m_workdays = member["workdays"]
+            if not isinstance(m_workdays, list) or len(m_workdays) == 0:
+                raise ValueError(
+                    f"メンバ '{m_id}' の workdays は1つ以上の有効な曜日文字列のリストである必要があります。"
+                )
+            for w in m_workdays:
+                if not isinstance(w, str) or w not in allowed_weekdays:
+                    raise ValueError(
+                        f"メンバ '{m_id}' の稼働曜日 '{w}' が calendar.workdays に含まれていません。"
+                    )
 
 
