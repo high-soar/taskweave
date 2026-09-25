@@ -1972,3 +1972,109 @@ class TestMemberWorkdaysCLI:
         assert "2026-09-01" in res_mermaid.stdout
         assert "2026-09-03" in res_mermaid.stdout
 
+    def test_cli_plan_with_load_balance(self, tmp_path):
+        """AC-4: taskweave plan に --load-balance オプションを指定して負荷平準化された計画が出力されること."""
+        (tmp_path / "members.yaml").write_text(
+            """members:
+  - id: alice
+    name: Alice
+    max_capacity: 1.0
+    skills: [backend]
+  - id: bob
+    name: Bob
+    max_capacity: 1.0
+    skills: [backend]
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "calendar.yaml").write_text(
+            """calendar:
+  workdays: [mon, tue, wed, thu, fri]
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "tasks.yaml").write_text(
+            """tasks:
+  - id: t1
+    title: Task 1
+    estimate_hours: 8.0
+    required_skills: [backend]
+  - id: t2
+    title: Task 2
+    estimate_hours: 8.0
+    required_skills: [backend]
+""",
+            encoding="utf-8",
+        )
+
+        res = run_cli("plan", str(tmp_path), "--start-date", "2026-09-07", "--load-balance", "--format", "json")
+        assert res.returncode == 0
+        import json
+        plan_data = json.loads(res.stdout)
+        assert plan_data["status"] == "OPTIMAL"
+        # 2タスクが Alice と Bob に分散されること
+        assigned_members = {plan_data["tasks"]["t1"]["assigned_to"], plan_data["tasks"]["t2"]["assigned_to"]}
+        assert assigned_members == {"alice", "bob"}
+
+    def test_cli_replan_with_load_balance(self, tmp_path):
+        """AC-4: taskweave replan に --load-balance オプションを指定して負荷平準化された再計画が出力されること."""
+        (tmp_path / "members.yaml").write_text(
+            """members:
+  - id: alice
+    name: Alice
+    max_capacity: 1.0
+    skills: [backend]
+  - id: bob
+    name: Bob
+    max_capacity: 1.0
+    skills: [backend]
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "calendar.yaml").write_text(
+            """calendar:
+  workdays: [mon, tue, wed, thu, fri]
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "tasks.yaml").write_text(
+            """tasks:
+  - id: t1
+    title: Task 1
+    estimate_hours: 8.0
+    required_skills: [backend]
+  - id: t2
+    title: Task 2
+    estimate_hours: 8.0
+    required_skills: [backend]
+  - id: t3
+    title: Task 3
+    estimate_hours: 8.0
+    required_skills: [backend]
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "actuals.yaml").write_text(
+            """actuals:
+  work_logs:
+    - date: "2026-09-07"
+      member_id: alice
+      task_id: t1
+      hours: 8.0
+  task_progress:
+    - task_id: t1
+      remaining_hours: 0.0
+      status: completed
+""",
+            encoding="utf-8",
+        )
+
+        res = run_cli("replan", str(tmp_path), "--as-of", "2026-09-08", "--load-balance", "--format", "json")
+        assert res.returncode == 0
+        import json
+        replan_data = json.loads(res.stdout)
+        replanned_tasks = replan_data["replanned"]["tasks"]
+        assigned_future = {replanned_tasks["t2"]["assigned_to"], replanned_tasks["t3"]["assigned_to"]}
+        assert assigned_future == {"alice", "bob"}
+
+

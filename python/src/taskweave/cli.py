@@ -157,6 +157,11 @@ def main(argv: list[str] | None = None) -> int:
         "--output",
         help="計画結果の出力先ファイルパス (省略時は標準出力のみ)",
     )
+    plan_parser.add_argument(
+        "--load-balance",
+        action="store_true",
+        help="メンバー間の負荷（稼働率）を平準化する (Issue #53)",
+    )
 
     # replan サブコマンド
     replan_parser = subparsers.add_parser(
@@ -187,6 +192,11 @@ def main(argv: list[str] | None = None) -> int:
     replan_parser.add_argument(
         "--output",
         help="再計画結果の出力先ファイルパス (省略時は標準出力のみ)",
+    )
+    replan_parser.add_argument(
+        "--load-balance",
+        action="store_true",
+        help="再計画においてメンバー間の負荷（稼働率）を平準化する (Issue #53)",
     )
 
     # log サブコマンド
@@ -326,6 +336,7 @@ def main(argv: list[str] | None = None) -> int:
                 tasks_data=tasks,
                 calendar_data=calendar,
                 project_start_date=proj_start,
+                load_balance=args.load_balance,
             )
         except Exception as err:
             sys.stderr.write(f"計画の計算に失敗しました: {err}\n")
@@ -387,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
                 as_of_date=args.as_of,
                 baseline_schedule=baseline_data,
                 project_data=project_res,
+                load_balance=args.load_balance,
             )
         except Exception as err:
             sys.stderr.write(f"再計画の実行に失敗しました: {err}\n")

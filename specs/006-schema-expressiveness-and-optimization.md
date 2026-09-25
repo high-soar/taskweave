@@ -4,7 +4,7 @@ title: スキーマ表現力 & 最適化強化仕様
 description: 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 tags: [schema, symmetry, deprecation, actuals, optimization, milestone-5]
 status: accepted
-issues: [50, 51, 52, 54]
+issues: [50, 51, 52, 53, 54]
 generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
 ---
 
@@ -27,10 +27,10 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
     - **As a**: プロジェクト管理者およびコーディングエージェント
     - **I want**: `tasks.yaml` においてタスクの担当者を「完全固定（`assigned_to`）」または「優先・推奨（`preferred_member`）」として指定できるようにしたい
     - **So that**: リードエンジニアが必ず担当すべき重要タスクや、特定ドメイン知識を持つ担当者に優先的に任せたいタスクの割当を柔軟に制御しつつ、自動スケジューリングの最適化を活用できるようにするため
-  - **ストーリー 4 (Issue #53: 負荷平準化ソフト制約 - 今後予定)**:
-    - **As a**: チームリード
-    - **I want**: 同一スキルを持つ複数メンバー間で作業負荷が偏らないよう、全体の納期を損なわずに負荷が平準化されるようにしたい
-    - **So that**: 特定のメンバーへの過負荷を防ぎ、健全なチーム稼働を維持するため
+  - **ストーリー 4 (Issue #53: ソルバー探索時におけるメンバー間の負荷平準化（Load Balancing）最適化)**:
+    - **As a**: 開発チームリーダーおよびプロジェクト管理者
+    - **I want**: スキル要件を満たすメンバーが複数存在する場合に、全体の納期（Makespan）を最短化しつつ、特定メンバーへ過度にタスクが集中しないよう稼働率を平準化（Load Balancing）したい
+    - **So that**: フルスタックや高スキルを持つメンバー1人に全作業が集中して他メンバーが手空きになる状況を防ぎ、チーム全体でバランス良く作業を分担できるようにするため
   - **ストーリー 5 (Issue #54: 着手済みタスクの引き継ぎ・再割当（Reassign / Handoff）のサポート)**:
     - **As a**: プロジェクト管理者および開発メンバー
     - **I want**: メンバーの急な長期離脱や体調不良、タスク優先度の変更に伴い、着手済みタスクの残工数を別メンバーへ引き継ぎ（Reassign / Handoff）て再計画したい
@@ -38,7 +38,7 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
 - **背景と目的**:
   先行マイルストーンにおいて、Taskweave は原本 YAML（`members.yaml`, `tasks.yaml`, `calendar.yaml`, `actuals.yaml`）を基盤とした計画・実績追跡・再計画ワークフローを確立しました。
   しかし、原本タスク定義において特定メンバーへの担当割り当てを固定・推奨する構文が存在せず、CP-SAT ソルバーがスキル適合メンバーの中から任意に割り当てていました。
-  本仕様では、原本 YAML の対称性統一（Issue #50）に続き、`tasks.yaml` にハード割当制約（`assigned_to`）およびソフト割当制約（`preferred_member`）を導入し、さらに実務で頻発する着手済みタスクの引き継ぎ（Issue #54: `handoff_to`）を原本 `actuals.yaml` にて安全に指定・検証・再計画・可視化できる仕組みを定義します。
+  本仕様では、原本 YAML の対称性統一（Issue #50）に続き、個別稼働曜日（Issue #51）、`tasks.yaml` へのハード割当制約（`assigned_to`）およびソフト割当制約（`preferred_member`）の導入（Issue #52）、ソルバー探索時の負荷平準化最適化（Issue #53）、さらに実務で頻発する着手済みタスクの引き継ぎ（Issue #54: `handoff_to`）を原本 `actuals.yaml` にて安全に指定・検証・再計画・可視化できる仕組みを定義します。
 
 ---
 
@@ -91,22 +91,34 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
   - `actuals.yaml` で過去の作業実績ログが存在する場合、原本 `tasks.yaml` の `assigned_to` 指定よりも `actuals.yaml` の実績作業者が優先される原則とする（再計画および将来の引き継ぎ・再割当 #54 に対応）。
 - **FR-18 (Infeasible 時のボトルネック診断 - Issue #52)**:
   - `assigned_to` のハード制約や該当メンバーのキャパシティ不足、納期制約違反等により解なし（`INFEASIBLE`）となった場合、ソルバーおよび CLI は明確なボトルネック診断情報を出力すること。
-- **FR-19 (`actuals.yaml` におけるタスク引き継ぎ指定 `task_progress[].handoff_to` - Issue #54)**:
+- **FR-19 (負荷平準化の線形目的関数モデル - Issue #53 AC-1)**:
+  - CP-SAT ソルバーの目的関数に、工期最短化（Makespan 最小化）および推奨担当者（`preferred_member`）割当を最優先としつつ、メンバーごとの稼働率（総工数 / 利用可能キャパシティ）の格差を抑える線形ペナルティ項（Minimax 稼働率最小化 $u_{\max}$ および凸区分線形ペナルティ $p_{\text{dev}, m}$ によるチーム正規化平均偏差 $\text{mean\_p\_dev}$）をソフト制約として組み込むこと。
+  - 二次形式（quadratic）を避け線形整数定式化（区分線形凸ペナルティ）を採用することで、ソルバーの探索性能とスケーラビリティを維持しつつ、Jensen の不等式により余力メンバー間での均等配分を数学的に保証すること。
+- **FR-20 (個別稼働日・キャパシティに基づく稼働率正規化 - Issue #53 AC-2)**:
+  - 単なる総工数（hours）ではなく、メンバーごとの個別稼働曜日（`workdays`）、個別不在（`absences`）、1日稼働上限（`max_capacity`）を反映した計画期間内の利用可能キャパシティ $C_m = \sum_{d=0}^{H-1} \text{daily\_caps}_{m, d}$ に基づき、稼働率 $U_m = W_m / C_m$ として正規化して平準化すること。
+  - 週3日稼働や時短勤務のメンバーに対しても、キャパシティに応じた適切な比率でタスクが配分されること。
+- **FR-21 (工期最短化・推奨担当者割当の優先とハイパーパラメータの数理保証 - Issue #53 AC-3)**:
+  - 負荷平準化の目的項を追加しても、プロジェクト全体の完了工期（Makespan）が無駄に延びたり先行依存・納期制約・推奨担当者割当（`preferred_member`）に悪影響を与えないこと。
+  - Makespan 1日延伸のペナルティ重み（1,000）および `preferred_member` ペナルティ（100）が負荷格差ペナルティの最大値（$\le 70$）を上回るようハイパーパラメータを数理的に保証すること（$\text{penalty}_{\text{makespan}} (1,000) > \text{penalty}_{\text{pref}} (100) > \max(\text{load\_balance}) (\le 70)$）。
+- **FR-22 (CLI オプション `--load-balance` による安全なオプトイン - Issue #53 AC-4)**:
+  - CLI サブコマンド `taskweave plan` および `taskweave replan` に `--load-balance` フラグを追加し、オプトインで平準化を有効化できること。
+  - フラグ未指定時のデフォルトは無効（`load_balance=False`）とし、既存のベースライン計算や既存テストの後方互換性を完全に保証すること。
+- **FR-23 (`actuals.yaml` におけるタスク引き継ぎ指定 `task_progress[].handoff_to` - Issue #54)**:
   - `actuals.yaml` の `task_progress` 配下の各タスク進捗定義に、任意の `handoff_to: <member_id>` フィールドを指定可能とする。`null`（または未指定）は引き継ぎなし（通常タスク）として許容する。
   - 着手済みタスクに `handoff_to` が指定された場合、原本 `tasks.yaml` の `assigned_to` や実績記録作業者よりも優先して未来の担当者として適用されること。
   - 完了済みタスク（`status: completed` または `remaining_hours: 0.0`）に対する `handoff_to` の指定は無効とし、バリデーションエラーとする。
   - 引き継ぎタスクにおいては、前任者（最大1名）と引き継ぎ先後任者の双方が `actuals.work_logs` に実績を記録することを許容する（1タスク1担当者原則の例外緩和）。
-- **FR-20 (引き継ぎ先の存在性およびスキル充足バリデーション - Issue #54)**:
+- **FR-24 (引き継ぎ先の存在性およびスキル充足バリデーション - Issue #54)**:
   - `validator.py` において、`validate_actuals` は `handoff_to` が非空文字列（または `null`）であることを構文検証し、完了済みタスクへの指定を検出すること。
   - `validate_logical_integrity` および `validate_schedule_inputs` において、引き継ぎ先メンバー（Handoff Recipient）が `members.yaml` に定義されており、かつタスクの必須スキル（`required_skills`）をすべて満たしていることを論理検証すること。
-- **FR-21 (起算日 As-of Date による実績固定と残工数の引き継ぎ先割当 - Issue #54)**:
+- **FR-25 (起算日 As-of Date による実績固定と残工数の引き継ぎ先割当 - Issue #54)**:
   - `engine.py` の再計画（`_solve_replan`）において、起算日（As-of Date）以前の実績工数・作業ログは前任者の実績として固定し、起算日以降の残工数（Remaining Hours）のみを引き継ぎ先メンバーのキャパシティに割り当てること。
-- **FR-22 (出力スキーマの単一担当者互換性と引き継ぎメタデータ付与 - Issue #54)**:
+- **FR-26 (出力スキーマの単一担当者互換性と引き継ぎメタデータ付与 - Issue #54)**:
   - 再計画出力（`result["tasks"][t_id]`）において、単一担当者モデルとの整合性を保つため `assigned_to: <後任者>` を基本としつつ、`handoff: {"from": <前任者>, "as_of": <起算日>}` メタデータを付与すること。
-- **FR-23 (レポーティング出力における前任者・後任者の分割描画 - Issue #54)**:
+- **FR-27 (レポーティング出力における前任者・後任者の分割描画 - Issue #54)**:
   - Mermaid ガントチャート出力（`format_replan_mermaid`）において、前任者のセクションに過去実績期間（`[実績]`）を、後任者のセクションに未来予定期間（`[残工数]`）をそれぞれ分割描画し、可視化上の矛盾（後任者が過去に作業したかのような誤表示）を防ぐこと。
   - Markdown 表出力（`format_replan_markdown`）においても、同様に過去実績と未来予定を明確に分離して表示すること。
-- **FR-24 (CLI `taskweave log` の `--handoff-to` オプションおよび差分表示 - Issue #54)**:
+- **FR-28 (CLI `taskweave log` の `--handoff-to` オプションおよび差分表示 - Issue #54)**:
   - `taskweave log` コマンドで進捗更新時に引き継ぎ担当者を指定できる `--handoff-to <member_id>` オプションをサポートすること。
   - `taskweave replan` / `taskweave apply` の差分表示（`format_diff_summary`）において、引き継ぎ・再割当の差分を表示すること。
 
@@ -453,13 +465,50 @@ actuals:
 - **操作 (When)**: `test_validator.py`, `test_engine.py`, `test_cli.py` を含む全 pytest テストおよびリポジトリ品質ゲートを実行する。
 - **期待結果 (Then)**: すべてのテストケースが成功すること。
 
-### シナリオ 21: `handoff_to` による引き継ぎ指定と原本優先 (Issue #54 AC-1)
+### シナリオ 21: 同一スキル複数メンバーへの負荷分散と稼働率格差縮小 (Issue #53 AC-1, AC-5)
+
+- **前提 (Given)**: 同一スキル（例: `backend`）を持つ2名（Alice, Bob、キャパシティ同等）が存在し、複数タスク（例: 各16時間、合計64時間）が未割当である。
+- **操作 (When)**:
+  - ケース A: `solve_schedule` を `load_balance=False` で実行する。
+  - ケース B: `solve_schedule` を `load_balance=True` で実行する。
+- **期待結果 (Then)**:
+  - ケース B において、Alice と Bob の担当工数・稼働率の格差（$|U_{\text{alice}} - U_{\text{bob}}|$）がケース A に比べて有意に縮小し、均等（各32時間）に分散されること。
+
+### シナリオ 22: 個別稼働曜日（workdays）に応じた適切な稼働率平準化 (Issue #53 AC-2)
+
+- **前提 (Given)**: Alice は週5日稼働（40h/週）、Bob は週3日稼働（24h/週、`workdays: ["mon", "wed", "fri"]`）で同一スキルを持ち、総工数32時間のタスク群が存在する。
+- **操作 (When)**: `solve_schedule(..., load_balance=True)` を実行する。
+- **期待結果 (Then)**: 単純な半々（16h / 16h）ではなく、両者の利用可能キャパシティ比（5 : 3）に応じた稼働率（Alice 20h, Bob 12h、稼働率各50%）に平準化されること。
+
+### シナリオ 23: Makespan 最短化・推奨担当者割当の優先と工期非延伸の数理保証 (Issue #53 AC-3)
+
+- **前提 (Given)**: タスクの先行依存関係やキャパシティ制約により、特定メンバーへ集中させると工期4日、負荷を他メンバーへ分散させると工期が5日以上へ延びるプロジェクト構成が存在する。
+- **操作 (When)**: `solve_schedule(..., load_balance=True)` を実行する。
+- **期待結果 (Then)**: 負荷分散よりも Makespan 最小化が厳格に優先され、工期が4日のまま維持されること（Makespan 1日延伸ペナルティ 1,000 > 推奨担当者ペナルティ 100 > 負荷平準化ペナルティ最大値 $\le 70$ の数理保証）。
+
+### シナリオ 24: CLI `--load-balance` オプションの動作検証 (Issue #53 AC-4)
+
+- **前提 (Given)**: 複数メンバーで分担可能な原本 YAML ディレクトリが存在する。
+- **操作 (When)**:
+  - `taskweave plan <dir> --format json`
+  - `taskweave plan <dir> --load-balance --format json`
+- **期待結果 (Then)**:
+  - 前者（フラグなし）ではベースラインの決定論的解が出力される。
+  - 後者（`--load-balance` あり）では負荷平準化されたスケジュールが出力され、終了コード 0 で正常終了すること。
+
+### シナリオ 25: 再計画（replan）における負荷平準化の適用 (Issue #53 AC-4)
+
+- **前提 (Given)**: 実績データ（`actuals.yaml`）を含む原本ディレクトリにおいて、未完了タスクが複数存在する。
+- **操作 (When)**: `taskweave replan <dir> --as-of <date> --load-balance --format json` を実行する。
+- **期待結果 (Then)**: 完了済み・着手済みタスクの実績を保護しつつ、未来の未完了タスクに対して稼働率が平準化された再計画が計算されること。
+
+### シナリオ 26: `handoff_to` による引き継ぎ指定と原本優先 (Issue #54 AC-1)
 
 - **前提 (Given)**: 原本 `tasks.yaml` で `assigned_to: alice` のタスクに対し、Alice が過去に実績ログを記録しており、`actuals.yaml` の `task_progress` に `handoff_to: bob` が指定されている。
 - **操作 (When)**: `taskweave replan --as-of <date>` または `_solve_replan` を実行する。
 - **期待結果 (Then)**: 原本 `tasks.yaml` の `assigned_to: alice` よりも `handoff_to: bob` が優先され、起算日以降の残工数が Bob に割り当てられること。
 
-### シナリオ 22: 引き継ぎ先の存在性、スキル検証および完了タスク制約 (Issue #54 AC-2)
+### シナリオ 27: 引き継ぎ先の存在性、スキル検証および完了タスク制約 (Issue #54 AC-2)
 
 - **前提 (Given)**:
   - ケース A: `actuals.yaml` の `task_progress` の `handoff_to` に存在しないメンバー ID が指定されている。
@@ -468,7 +517,7 @@ actuals:
 - **操作 (When)**: `validate_project_data` または `validate_schedule_inputs` を実行する。
 - **期待結果 (Then)**: `valid == False`（または `ValueError`）となり、未定義メンバー参照、必須スキル不適合、または完了済みタスクへの指定不可の明確なエラーが出力されること。
 
-### シナリオ 23: 起算日前後の実績固定と残工数割当 (Issue #54 AC-3)
+### シナリオ 28: 起算日前後の実績固定と残工数割当 (Issue #54 AC-3)
 
 - **前提 (Given)**: タスク `task-api` に対し、起算日（`2026-09-10`）以前に Alice が 12 時間の実績を記録しており、`task_progress` で `handoff_to: bob`、`remaining_hours: 8.0` が指定されている。
 - **操作 (When)**: `replan` を実行する。
@@ -476,7 +525,7 @@ actuals:
   - 起算日以前の 12 時間は Alice の作業実績（`member_daily_work["alice"]`）として固定されること。
   - 起算日以降の残工数 8 時間のみが Bob のキャパシティ（`member_daily_work["bob"]`）に割り当てられること。
 
-### シナリオ 24: 出力スキーマでの単一担当者互換性と引き継ぎメタデータ (Issue #54 AC-4)
+### シナリオ 29: 出力スキーマでの単一担当者互換性と引き継ぎメタデータ (Issue #54 AC-4)
 
 - **前提 (Given)**: Alice から Bob への引き継ぎタスクを含む再計画が実行される。
 - **操作 (When)**: 出力 JSON の `result["tasks"][t_id]` を確認する。
@@ -484,7 +533,7 @@ actuals:
   - `assigned_to` が後任者 `"bob"` であること。
   - `handoff` オブジェクトが存在し、`{"from": "alice", "as_of": <起算日>}` が正しく記録されていること。
 
-### シナリオ 25: レポーティング出力における前任者・後任者の分割描画 (Issue #54 AC-5)
+### シナリオ 30: レポーティング出力における前任者・後任者の分割描画 (Issue #54 AC-5)
 
 - **前提 (Given)**: Alice から Bob への引き継ぎタスクを含む再計画結果が存在する。
 - **操作 (When)**: `format_replan_mermaid` および `format_replan_markdown` を実行する。
@@ -492,7 +541,7 @@ actuals:
   - Mermaid ガントチャートにおいて、`section alice` に `task-api [実績] : done, ...` が描画され、`section bob` に `task-api [残工数] : active, ...` が描画されること。
   - Markdown 表において、前任者の過去実績期間と後任者の未来予定期間が矛盾なく分割表示されること。
 
-### シナリオ 26: CLI `taskweave log --handoff-to` および差分表示 (Issue #54 AC-6)
+### シナリオ 31: CLI `taskweave log --handoff-to` および差分表示 (Issue #54 AC-6)
 
 - **前提 (Given)**: 有効な原本ディレクトリが存在する。
 - **操作 (When)**: `taskweave log <date> --member alice --task task-api --hours 4.0 --remaining 8.0 --handoff-to bob` を実行し、続いて `taskweave replan` / `taskweave apply` を実行する。
@@ -537,3 +586,11 @@ actuals:
   - **検討**: 同一タスクに両方指定された場合、`assigned_to` を優先適用して `preferred_member` を無視する案。
   - **決定**: バリデーションエラーとして弾く。
   - **理由**: ハード制約（完全固定）とソフト制約（推奨）を同一タスクに書くことは意図が矛盾しており、設定者の記述ミスを早期に検知・防止するため。
+- **設計判断 G: 負荷平準化における凸区分線形整数モデルの採用 (Issue #53 AC-1, AC-5)**:
+  - **検討**: 二次形式（分散最小化 $\sum (W_m - \bar{W})^2$）の導入 vs 線形形式（Minimax 稼働率 $u_{\max}$ および L1 ノルム絶対偏差和 $\sum dev_m$）。
+  - **決定**: Minimax 稼働率最小化（$u_{\max} \le 30$）と、総工数基準偏差に対する凸区分線形ペナルティ（$p_{\text{dev}, m}$）のチーム規模正規化（$\text{mean\_p\_dev}$）を組み合わせた線形整数モデルを採用。
+  - **理由**: CP-SAT ソルバーは線形整数制約・ブール充足可能性において極めて高度に最適化されており、二次形式（MIQP）を避けることで探索速度の劣化を防ぐ。さらに単なる L1 ノルムでは特定専任メンバーが高負荷の際に余力メンバー間の差分傾きが 0 となり平準化されない退化（不偏性欠如）が発生するため、傾きが段階的に増加する凸区分線形ペナルティを導入し Jensen の不等式により均等配分を数学的に保証する。
+- **設計判断 H: 負荷平準化ハイパーパラメータと工期最短化の数理保証 (Issue #53 AC-3)**:
+  - **検討**: 目的関数における負荷平準化ペナルティの重みと上限設計。
+  - **決定**: 負荷平準化ペナルティの理論的最大値を 70 以下（$u_{\max} \le 30$、$\text{mean\_p\_dev} \le 35$ より $P_{\text{load\_balance}} \le 70$）とし、Makespan 1日延伸ペナルティ（1,000）および `preferred_member` ペナルティ（100）を厳格に下回るよう保証（Makespan 1,000 > preferred_member 100 > load_balance $\le 70$ > 早い完了 1）。
+  - **理由**: 負荷を分散させるためにプロジェクト全体の完了日が延びてしまう「本末転倒」や推奨メンバーへの配慮を無視した強引な負荷分散を防ぎ、工期最短化および推奨割当が負荷平準化に対して数学的に常に優位となることを保証するため。

@@ -20,6 +20,7 @@ def replan(
     baseline_schedule: dict[str, Any] | None = None,
     project_start_date: datetime.date | str | None = None,
     project_data: ProjectValidationResult | None = None,
+    load_balance: bool = False,
 ) -> dict[str, Any]:
     """ディレクトリ内の原本および実績データを読み込み、再計画と差分算出を実行する.
 
@@ -29,6 +30,7 @@ def replan(
         baseline_schedule: 事前計算されたベースライン計画 (未指定時は実績なしで動的計算)
         project_start_date: プロジェクト開始日 (未指定時は実績の最古日付または as_of_date)
         project_data: 事前検証済みの ProjectValidationResult (指定時はディスク再読み込みをスキップ)
+        load_balance: メンバー間の負荷（稼働率）平準化を有効にするフラグ (Issue #53)
 
     Returns:
         {"baseline": baseline_dict, "replanned": replanned_dict, "diff": diff_dict}
@@ -72,6 +74,7 @@ def replan(
             tasks_data=tasks,
             calendar_data=calendar,
             project_start_date=proj_start,
+            load_balance=load_balance,
         )
 
     # 再計画の計算
@@ -82,6 +85,7 @@ def replan(
         project_start_date=proj_start,
         as_of_date=as_of,
         actuals_data=actuals,
+        load_balance=load_balance,
     )
 
     # 差分および診断の算出
