@@ -212,6 +212,69 @@ def _diagnose_infeasible_reasons(
     return reasons
 
 
+def _add_load_balance_objective(
+    model: cp_model.CpModel,
+    active_members: list[str],
+    member_total_caps: dict[str, int],
+    task_ids: list[str],
+    task_work_units: dict[str, int],
+    assigned: dict[tuple[str, str], cp_model.IntVar],
+) -> cp_model.LinearExpr | None:
+    """負荷平準化ソフト制約ペナルティをモデルに追加し、ペナルティ式を返却する.
+
+    - Minimax 稼働率 u_max と、各メンバーの目標工数からの偏差に対する区分線形凸ペナルティ（Piecewise-linear convex penalty）を採用
+    - 偏差は計画地平の長さではなく総工数 total_work_units で正規化することで、地平長の依存や希釈を排除。
+    - 凸ペナルティ設計（Jensen の不等式）により、特定メンバーが高負荷（他スキル専任等）であっても
+      余力メンバー間での均等分散が数理的に保証される（Issue #53 AC-1, AC-5）。
+    - メンバー数 M で正規化（平均化）されており、負荷平準化ペナルティ全体の理論的最大値は
+      常に <= 70（u_max <= 30 + mean_dev <= 40）に厳格に抑制される。
+    - これにより、Makespan 1日延伸ペナルティ（1,000）および preferred_member ペナルティ（100）
+      を絶対に逆転しない優先度階層（Makespan 1000 > preferred_member 100 > load_balance <= 70 > end_day 1）
+      が数理的に保証される（Issue #53 AC-3, specs/003, specs/006）。
+    """
+    m_count = len(active_members)
+    if m_count < 2:
+        return None
+
+    total_cap = sum(member_total_caps[m_id] for m_id in active_members)
+    total_work_units = sum(task_work_units.values())
+    if total_cap <= 0 or total_work_units <= 0:
+        return None
+
+    # 1. Minimax 稼働率 u_max (0 ~ 30)
+    u_max = model.NewIntVar(0, 30, "max_utilization")
+    p_dev_terms = []
+    for m_id in active_members:
+        c_m = member_total_caps[m_id]
+        work_m = sum(task_work_units[t_id] * assigned[t_id, m_id] for t_id in task_ids)
+        model.Add(c_m * u_max >= 30 * work_m)
+
+        # 2. 目標工数からの絶対偏差 dev_m (総工数基準の %ポイント: 0 ~ 100)
+        target_m = round(total_work_units * c_m / total_cap)
+        diff_m = work_m - target_m
+        dev_m = model.NewIntVar(0, 100, f"dev_{m_id}")
+        model.Add(total_work_units * dev_m >= 100 * diff_m)
+        model.Add(total_work_units * dev_m >= -100 * diff_m)
+
+        # 3. 区分線形凸ペナルティ p_dev_m (高偏差ほど傾きが増加)
+        # dev_m in [0, 10]: slope 1
+        # dev_m in [10, 20]: slope 2
+        # dev_m in [20, 100]: slope 4
+        p_dev_m = model.NewIntVar(0, 350, f"p_dev_{m_id}")
+        model.Add(p_dev_m >= dev_m)
+        model.Add(p_dev_m >= 2 * dev_m - 10)
+        model.Add(p_dev_m >= 4 * dev_m - 50)
+        p_dev_terms.append(p_dev_m)
+
+    # メンバー数 M による正規化（平均偏差ペナルティ: 0 ~ 70）
+    sum_p_dev = model.NewIntVar(0, 350 * m_count, "sum_p_dev")
+    model.Add(sum_p_dev == sum(p_dev_terms))
+    mean_p_dev = model.NewIntVar(0, 70, "mean_p_dev")
+    model.AddDivisionEquality(mean_p_dev, sum_p_dev, 5 * m_count)
+
+    return u_max + mean_p_dev
+
+
 def solve_schedule(
     members_data: list[dict[str, Any]],
     tasks_data: list[dict[str, Any]],
@@ -221,6 +284,7 @@ def solve_schedule(
     force_infeasible_deadline: bool = False,
     as_of_date: datetime.date | str | None = None,
     actuals_data: dict[str, Any] | None = None,
+    load_balance: bool = False,
 ) -> dict[str, Any]:
     """OR-Tools CP-SAT を用いて最適なスケジュールを計算する.
 
@@ -233,6 +297,7 @@ def solve_schedule(
         force_infeasible_deadline: 診断テスト用フラグ
         as_of_date: 起算日 (未指定時はプロジェクト開始日からの全量計画)
         actuals_data: 実績データ (work_logs, task_progress)
+        load_balance: メンバー間の負荷（稼働率）平準化を有効にするフラグ (Issue #53)
 
     Returns:
         計算結果辞書 (status, project_start_date, as_of_date, makespan_workdays, tasks, member_daily_work, diagnostics)
@@ -252,6 +317,7 @@ def solve_schedule(
             actuals_data=actuals_data,
             horizon_days=horizon_days,
             force_infeasible_deadline=force_infeasible_deadline,
+            load_balance=load_balance,
         )
 
     # 入力データの検証 (validator へ集約)
@@ -439,7 +505,7 @@ def solve_schedule(
         model.Add(diff == end_day[t_id] - target_deadline_day)
         model.AddMaxEquality(delay[t_id], [0, diff])
 
-    # 目的関数 (FR-7, FR-9, FR-13):
+    # 目的関数 (FR-7, FR-9, FR-13, FR-14):
     makespan = model.NewIntVar(0, horizon_days, "makespan")
     for t_id in task_ids:
         model.Add(makespan >= end_day[t_id])
@@ -451,13 +517,39 @@ def solve_schedule(
             # 推奨メンバーに割り当てられない場合にペナルティ 100 (Makespan 延伸 1000 未満、end_day ペナルティ 1 より十分大)
             pref_penalty_terms.append(100 * (1 - assigned[t_id, pref_m]))
 
-    model.Minimize(
+    # 負荷平準化ソフト制約ペナルティ (Issue #53: load_balance=True)
+    load_balance_penalty = None
+    if load_balance:
+        # メンバごとの計画地平内利用可能キャパシティ C_m = sum_d daily_caps[m, d]
+        member_total_caps = {
+            m_id: sum(daily_caps[m_id, d] for d in range(horizon_days))
+            for m_id in member_ids
+        }
+        active_members = [m_id for m_id in member_ids if member_total_caps[m_id] > 0]
+        task_work_units = {
+            t_id: round(tasks[t_id]["estimate_hours"] * scale)
+            for t_id in task_ids
+        }
+        load_balance_penalty = _add_load_balance_objective(
+            model=model,
+            active_members=active_members,
+            member_total_caps=member_total_caps,
+            task_ids=task_ids,
+            task_work_units=task_work_units,
+            assigned=assigned,
+        )
+
+    obj_expr = (
         sum(delay[t_id] for t_id in task_ids) * 100000
         + makespan * 1000
         + sum(pref_penalty_terms)
         + sum(end_day[t] for t in task_ids) * 1
         + sum(end_day[t] - start_day[t] for t in task_ids) * 1
     )
+    if load_balance and load_balance_penalty is not None:
+        obj_expr += load_balance_penalty * 1
+
+    model.Minimize(obj_expr)
 
     # 初期解ヒントの生成 (NFR-1, NFR-2, R3: 単一ワーカーでも大規模問題で10秒以内にFEASIBLE解を保証)
     in_degree = {t_id: 0 for t_id in task_ids}
@@ -750,6 +842,7 @@ def _solve_replan(
     actuals_data: dict[str, Any] | None,
     horizon_days: int | None = None,
     force_infeasible_deadline: bool = False,
+    load_balance: bool = False,
 ) -> dict[str, Any]:
     """起算日 (As-of Date) に基づく実績固定と未完了タスクの再計画計算 (Issue #26)."""
     validate_schedule_inputs(members_data, tasks_data, calendar_data)
@@ -1032,13 +1125,39 @@ def _solve_replan(
             if pref_m and pref_m in member_ids:
                 pref_penalty_terms.append(100 * (1 - assigned[t_id, pref_m]))
 
-    model.Minimize(
+    # 負荷平準化ソフト制約ペナルティ (Issue #53: load_balance=True)
+    load_balance_penalty = None
+    if load_balance:
+        # 未来計画地平内利用可能キャパシティ C_m = sum_d future_daily_caps[m, d]
+        member_total_caps = {
+            m_id: sum(future_daily_caps[m_id, d] for d in range(future_horizon_days))
+            for m_id in member_ids
+        }
+        active_members = [m_id for m_id in member_ids if member_total_caps[m_id] > 0]
+        task_rem_units = {
+            t_id: round(progress_by_task[t_id]["remaining_hours"] * scale)
+            for t_id in future_task_ids
+        }
+        load_balance_penalty = _add_load_balance_objective(
+            model=model,
+            active_members=active_members,
+            member_total_caps=member_total_caps,
+            task_ids=future_task_ids,
+            task_work_units=task_rem_units,
+            assigned=assigned,
+        )
+
+    obj_expr = (
         sum(delay[t_id] for t_id in future_task_ids) * 100000
         + makespan * 1000
         + sum(pref_penalty_terms)
         + sum(end_day[t] for t in future_task_ids) * 1
         + sum(end_day[t] - start_day[t] for t in future_task_ids) * 1
     )
+    if load_balance and load_balance_penalty is not None:
+        obj_expr += load_balance_penalty * 1
+
+    model.Minimize(obj_expr)
 
     # 初期解ヒントの生成 (NFR-2, 単一ワーカー探索順序の安定化)
     in_degree = {t_id: 0 for t_id in future_task_ids}
