@@ -1569,3 +1569,115 @@ members:
         # 非文字列要素
         with pytest.raises(ValueError, match="calendar.workdays に含まれていません"):
             validate_schedule_inputs([{"id": "alice", "workdays": [123]}], tasks, calendar)
+
+
+class TestHandoffValidation:
+    """Issue #54: タスク引き継ぎ（handoff_to）のスキーマおよび論理整合性検証テスト."""
+
+    def test_actuals_task_progress_valid_handoff_to(self):
+        yaml_content = """
+actuals:
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 8.0
+      status: in_progress
+      handoff_to: bob
+"""
+        res = validate_actuals(yaml_content)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        tp = res.data["task_progress"][0]
+        assert tp["task_id"] == "task-api"
+        assert tp["handoff_to"] == "bob"
+
+    def test_actuals_task_progress_invalid_handoff_to_type(self):
+        yaml_content = """
+actuals:
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 8.0
+      status: in_progress
+      handoff_to: 123
+"""
+        res = validate_actuals(yaml_content)
+        assert res.valid is False
+        assert any("handoff_to" in e for e in res.errors)
+
+    def test_actuals_task_progress_empty_handoff_to(self):
+        yaml_content = """
+actuals:
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 8.0
+      status: in_progress
+      handoff_to: ""
+"""
+        res = validate_actuals(yaml_content)
+        assert res.valid is False
+        assert any("handoff_to" in e for e in res.errors)
+
+    def test_logical_integrity_handoff_to_undefined_member(self):
+        members = [{"id": "alice", "name": "Alice", "skills": ["backend"]}]
+        tasks = [{"id": "t1", "title": "T1", "estimate_hours": 8.0, "required_skills": ["backend"]}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        actuals = {
+            "work_logs": [{"date": "2026-09-08", "member_id": "alice", "task_id": "t1", "hours": 4.0}],
+            "task_progress": [{"task_id": "t1", "remaining_hours": 4.0, "status": "in_progress", "handoff_to": "eve"}],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("未定義のメンバー" in e and "eve" in e for e in res.errors)
+
+    def test_logical_integrity_handoff_to_missing_required_skills(self):
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["backend"]},
+            {"id": "bob", "name": "Bob", "skills": ["frontend"]},
+        ]
+        tasks = [{"id": "t1", "title": "T1", "estimate_hours": 8.0, "required_skills": ["backend"]}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        actuals = {
+            "work_logs": [{"date": "2026-09-08", "member_id": "alice", "task_id": "t1", "hours": 4.0}],
+            "task_progress": [{"task_id": "t1", "remaining_hours": 4.0, "status": "in_progress", "handoff_to": "bob"}],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("必須スキル" in e and "保有していません" in e for e in res.errors)
+
+    def test_logical_integrity_handoff_to_valid(self):
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["backend"]},
+            {"id": "bob", "name": "Bob", "skills": ["backend", "frontend"]},
+        ]
+        tasks = [{"id": "t1", "title": "T1", "estimate_hours": 8.0, "required_skills": ["backend"]}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        actuals = {
+            "work_logs": [{"date": "2026-09-08", "member_id": "alice", "task_id": "t1", "hours": 4.0}],
+            "task_progress": [{"task_id": "t1", "remaining_hours": 4.0, "status": "in_progress", "handoff_to": "bob"}],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is True
+        assert len(res.errors) == 0
+
+    def test_validate_schedule_inputs_handoff_to_undefined_member(self):
+        members = [{"id": "alice", "skills": ["backend"]}]
+        tasks = [{"id": "t1", "estimate_hours": 8.0, "required_skills": ["backend"]}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        actuals = {
+            "task_progress": [{"task_id": "t1", "remaining_hours": 4.0, "status": "in_progress", "handoff_to": "eve"}],
+        }
+        with pytest.raises(ValueError, match="未定義"):
+            validate_schedule_inputs(members, tasks, calendar, actuals_data=actuals)
+
+    def test_validate_schedule_inputs_handoff_to_missing_skills(self):
+        members = [
+            {"id": "alice", "skills": ["backend"]},
+            {"id": "bob", "skills": ["frontend"]},
+        ]
+        tasks = [{"id": "t1", "estimate_hours": 8.0, "required_skills": ["backend"]}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        actuals = {
+            "task_progress": [{"task_id": "t1", "remaining_hours": 4.0, "status": "in_progress", "handoff_to": "bob"}],
+        }
+        with pytest.raises(ValueError, match="必須スキル"):
+            validate_schedule_inputs(members, tasks, calendar, actuals_data=actuals)
+

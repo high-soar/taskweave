@@ -174,6 +174,7 @@ def compute_schedule_diff(
                 "workdays_count": r_wcount,
                 "status": r_t.get("status", "not_started"),
                 "delay_days": r_delay,
+                **({"handoff": r_t["handoff"]} if "handoff" in r_t else {}),
             },
             "diff": {
                 "start_date_slip_days": start_slip,
@@ -255,6 +256,24 @@ def format_diff_summary(diff_result: dict[str, Any]) -> str:
                 lines.append(f"    - {detail}")
 
             lines.append("")
+
+    tasks = diff_result.get("tasks", {})
+    reassigned_tasks = [
+        (t_id, t_data)
+        for t_id, t_data in sorted(tasks.items())
+        if t_data.get("diff", {}).get("assignee_changed") or t_data.get("replanned", {}).get("handoff")
+    ]
+    if reassigned_tasks:
+        lines.append(f"--- Reassignments & Handoffs ({len(reassigned_tasks)} tasks) ---")
+        for t_id, t_data in reassigned_tasks:
+            b_m = t_data.get("baseline", {}).get("assigned_to") or "unassigned"
+            r_m = t_data.get("replanned", {}).get("assigned_to") or "unassigned"
+            handoff = t_data.get("replanned", {}).get("handoff")
+            if handoff:
+                lines.append(f"- [引き継ぎ] {t_id}: {handoff.get('from')} -> {r_m} (起算日: {handoff.get('as_of')})")
+            else:
+                lines.append(f"- [担当変更] {t_id}: {b_m} -> {r_m}")
+        lines.append("")
 
     recs = diff_result.get("recommendations", [])
     if recs:

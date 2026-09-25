@@ -2128,3 +2128,61 @@ def test_member_workdays_horizon_auto_calculation_for_part_time_member():
     assert t1["actual_active_days"] == 7
     # 7 週目の月曜日に終了
     assert t1["end_date"] == "2026-10-19"
+
+
+def test_replan_task_handoff_reassigns_remaining_hours_and_adds_metadata():
+    """Issue #54 (AC-1, AC-3, AC-4):
+    着手済みタスクで handoff_to が指定された場合、
+    1. 過去実績は前任者 (alice) に固定
+    2. 残工数は後任者 (bob) に割り当て
+    3. tasks.yaml の assigned_to (alice) よりも優先
+    4. 結果スキーマの assigned_to は後任者 (bob)
+    5. handoff メタデータ {"from": "alice", "as_of": "2026-09-09"} が付与されること.
+    """
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {
+            "id": "t1",
+            "title": "API Task",
+            "estimate_hours": 16.0,
+            "required_skills": ["backend"],
+            "assigned_to": "alice",  # tasks.yaml では alice に指定
+        }
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": [], "absences": []}
+    project_start = datetime.date(2026, 9, 8)  # 火曜
+    as_of_date = datetime.date(2026, 9, 9)    # 水曜
+
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-08", "member_id": "alice", "task_id": "t1", "hours": 8.0}
+        ],
+        "task_progress": [
+            {
+                "task_id": "t1",
+                "remaining_hours": 8.0,
+                "status": "in_progress",
+                "handoff_to": "bob",  # 後任者は bob
+            }
+        ],
+    }
+
+    res = solve_schedule(members, tasks, calendar, project_start, as_of_date=as_of_date, actuals_data=actuals)
+    assert res["status"] == "OPTIMAL"
+    t1 = res["tasks"]["t1"]
+    assert t1["assigned_to"] == "bob"
+    assert t1["handoff"] == {"from": "alice", "as_of": "2026-09-09"}
+    assert t1["daily_hours"]["2026-09-08"] == 8.0
+    assert t1["daily_hours"]["2026-09-09"] == 8.0
+
+    # alice の日別作業: 9/8 に 8h、9/9 以降は 0
+    assert res["member_daily_work"]["alice"].get("2026-09-08") == 8.0
+    assert "2026-09-09" not in res["member_daily_work"]["alice"]
+
+    # bob の日別作業: 9/8 は 0、9/9 に 8h
+    assert "2026-09-08" not in res["member_daily_work"]["bob"]
+    assert res["member_daily_work"]["bob"].get("2026-09-09") == 8.0
+

@@ -171,57 +171,79 @@ def format_replan_mermaid(replan_result: dict[str, Any]) -> str:
     as_of = replanned.get("as_of_date", "")
 
     tasks: dict[str, Any] = replanned.get("tasks", {})
-    by_member: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    by_member: dict[str, list[tuple[str, str, str]]] = {}
 
     for t_id, t_info in tasks.items():
+        handoff = t_info.get("handoff")
         member = t_info.get("assigned_to") or "unassigned"
-        by_member.setdefault(member, []).append((t_id, t_info))
+        s_date = t_info.get("start_date", "-")
+        e_date = t_info.get("end_date", "-")
+        status = t_info.get("status", "not_started")
+        daily_hours: dict[str, float] = t_info.get("daily_hours", {})
+
+        is_delayed = bool(tasks_diff.get(t_id, {}).get("diagnostics", {}).get("is_delayed"))
+        delay_prefix = "crit, " if is_delayed else ""
+
+        if handoff and isinstance(handoff, dict):
+            from_m = handoff.get("from") or "unassigned"
+            to_m = member
+            cutoff = handoff.get("as_of") or as_of
+            past_days = [d for d, h in daily_hours.items() if d < cutoff and h > 0] if daily_hours and cutoff else []
+            future_days = [d for d, h in daily_hours.items() if d >= cutoff and h > 0] if daily_hours and cutoff else []
+
+            if past_days:
+                p_start = min(past_days)
+                p_end = max(past_days)
+                p_line = f"    {t_id} [実績] : done, {t_id}-actual, {p_start}, {p_end}"
+                by_member.setdefault(from_m, []).append((p_start, t_id, p_line))
+
+            if future_days:
+                f_start = min(future_days)
+                f_end = max(future_days)
+                f_line = f"    {t_id} [残工数] : {delay_prefix}active, {t_id}, {f_start}, {f_end}"
+                by_member.setdefault(to_m, []).append((f_start, t_id, f_line))
+            elif status == "in_progress":
+                f_line = f"    {t_id} [残工数] : {delay_prefix}active, {t_id}, {s_date}, {e_date}"
+                by_member.setdefault(to_m, []).append((s_date, t_id, f_line))
+            elif status not in ("completed", "done"):
+                tag_str = f" {delay_prefix}" if delay_prefix else " "
+                f_line = f"    {t_id} :{tag_str}{t_id}, {s_date}, {e_date}"
+                by_member.setdefault(to_m, []).append((s_date, t_id, f_line))
+        else:
+            if status in ("completed", "done"):
+                line = f"    {t_id} [完了] : done, {t_id}, {s_date}, {e_date}"
+                by_member.setdefault(member, []).append((s_date, t_id, line))
+            elif status == "in_progress":
+                past_days = [d for d, h in daily_hours.items() if d <= as_of and h > 0] if daily_hours and as_of else []
+                future_days = [d for d, h in daily_hours.items() if d > as_of and h > 0] if daily_hours and as_of else []
+
+                if past_days and future_days:
+                    l1 = f"    {t_id} [実績] : done, {t_id}-actual, {min(past_days)}, {max(past_days)}"
+                    l2 = f"    {t_id} [残工数] : {delay_prefix}active, {t_id}, {min(future_days)}, {max(future_days)}"
+                    by_member.setdefault(member, []).append((min(past_days), t_id, l1))
+                    by_member.setdefault(member, []).append((min(future_days), t_id, l2))
+                elif past_days:
+                    l1 = f"    {t_id} [実績] : done, {t_id}-actual, {min(past_days)}, {max(past_days)}"
+                    by_member.setdefault(member, []).append((min(past_days), t_id, l1))
+                elif future_days:
+                    l2 = f"    {t_id} [残工数] : {delay_prefix}active, {t_id}, {min(future_days)}, {max(future_days)}"
+                    by_member.setdefault(member, []).append((min(future_days), t_id, l2))
+                else:
+                    l = f"    {t_id} : {delay_prefix}active, {t_id}, {s_date}, {e_date}"
+                    by_member.setdefault(member, []).append((s_date, t_id, l))
+            else:
+                tag_str = f" {delay_prefix}" if delay_prefix else " "
+                l = f"    {t_id} :{tag_str}{t_id}, {s_date}, {e_date}"
+                by_member.setdefault(member, []).append((s_date, t_id, l))
 
     sorted_members = sorted(by_member.keys(), key=lambda m: (m == "unassigned", m))
 
     for member in sorted_members:
         lines.append("")
         lines.append(f"    section {member}")
-        member_tasks = sorted(
-            by_member[member],
-            key=lambda item: (item[1].get("start_date", ""), item[0]),
-        )
-        for t_id, t_info in member_tasks:
-            s_date = t_info.get("start_date", "-")
-            e_date = t_info.get("end_date", "-")
-            status = t_info.get("status", "not_started")
-            remaining_hours = float(t_info.get("remaining_hours") or 0.0)
-            daily_hours: dict[str, float] = t_info.get("daily_hours", {})
-
-            is_delayed = bool(tasks_diff.get(t_id, {}).get("diagnostics", {}).get("is_delayed"))
-            delay_prefix = "crit, " if is_delayed else ""
-
-            if status in ("completed", "done"):
-                lines.append(f"    {t_id} [完了] : done, {t_id}, {s_date}, {e_date}")
-            elif status == "in_progress":
-                past_days = [d for d, h in daily_hours.items() if d <= as_of and h > 0] if daily_hours and as_of else []
-                future_days = [d for d, h in daily_hours.items() if d > as_of and h > 0] if daily_hours and as_of else []
-
-                if past_days and future_days:
-                    lines.append(
-                        f"    {t_id} [実績] : done, {t_id}-actual, {min(past_days)}, {max(past_days)}"
-                    )
-                    lines.append(
-                        f"    {t_id} [残工数] : {delay_prefix}active, {t_id}, {min(future_days)}, {max(future_days)}"
-                    )
-                elif past_days:
-                    lines.append(
-                        f"    {t_id} [実績] : done, {t_id}-actual, {min(past_days)}, {max(past_days)}"
-                    )
-                elif future_days:
-                    lines.append(
-                        f"    {t_id} [残工数] : {delay_prefix}active, {t_id}, {min(future_days)}, {max(future_days)}"
-                    )
-                else:
-                    lines.append(f"    {t_id} : {delay_prefix}active, {t_id}, {s_date}, {e_date}")
-            else:
-                tag_str = f" {delay_prefix}" if delay_prefix else " "
-                lines.append(f"    {t_id} :{tag_str}{t_id}, {s_date}, {e_date}")
+        member_entries = sorted(by_member[member], key=lambda item: (item[0], item[1]))
+        for _, _, rendered_line in member_entries:
+            lines.append(rendered_line)
 
     lines.append("```")
     return "\n".join(lines)
@@ -240,6 +262,7 @@ def format_replan_markdown(replan_result: dict[str, Any]) -> str:
     baseline = replan_result.get("baseline", {})
     replanned = replan_result.get("replanned", {})
     diff = replan_result.get("diff", {})
+    as_of = replanned.get("as_of_date", "")
 
     makespan = diff.get("makespan", {})
     b_ms = makespan.get("baseline_workdays") or baseline.get("makespan_workdays") or 0
@@ -314,10 +337,39 @@ def format_replan_markdown(replan_result: dict[str, Any]) -> str:
         deadline = t_info.get("deadline") or "-"
         delay = t_info.get("delay_days", 0)
         delay_str = f"+{delay}日" if delay > 0 else "-"
-        lines.append(
-            f"| {t_id} | {assignee} | {status} | {s_date} | {e_date} | {w_days} | "
-            f"{logged:.1f}h | {remaining:.1f}h | {deadline} | {delay_str} |"
-        )
+        handoff = t_info.get("handoff")
+        daily_hours = t_info.get("daily_hours", {})
+
+        if handoff and isinstance(handoff, dict):
+            from_m = handoff.get("from") or "unassigned"
+            to_m = assignee
+            cutoff = handoff.get("as_of") or as_of
+            past_days = [d for d, h in daily_hours.items() if d < cutoff and h > 0] if daily_hours and cutoff else []
+            future_days = [d for d, h in daily_hours.items() if d >= cutoff and h > 0] if daily_hours and cutoff else []
+
+            p_start = min(past_days) if past_days else s_date
+            p_end = max(past_days) if past_days else s_date
+            p_days = len(past_days) if past_days else 1
+
+            f_start = min(future_days) if future_days else e_date
+            f_end = max(future_days) if future_days else e_date
+            f_days = len(future_days) if future_days else max(1, w_days - p_days)
+
+            # 前任者の過去実績行
+            lines.append(
+                f"| {t_id} [実績] | {from_m} | {status} | {p_start} | {p_end} | {p_days} | "
+                f"{logged:.1f}h | 0.0h | - | - |"
+            )
+            # 後任者の未来予定行
+            lines.append(
+                f"| {t_id} [残工数] | {to_m} | {status} | {f_start} | {f_end} | {f_days} | "
+                f"0.0h | {remaining:.1f}h | {deadline} | {delay_str} |"
+            )
+        else:
+            lines.append(
+                f"| {t_id} | {assignee} | {status} | {s_date} | {e_date} | {w_days} | "
+                f"{logged:.1f}h | {remaining:.1f}h | {deadline} | {delay_str} |"
+            )
 
     recs = diff.get("recommendations", [])
     if recs:

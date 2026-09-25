@@ -231,6 +231,10 @@ def main(argv: list[str] | None = None) -> int:
         help="タスク進捗ステータス",
     )
     log_parser.add_argument(
+        "--handoff-to",
+        help="引き継ぎ先メンバー ID",
+    )
+    log_parser.add_argument(
         "--add",
         action="store_true",
         help="同一日の同一メンバ・同一タスク実績が既にある場合に加算する (デフォルト: 上書き)",
@@ -435,6 +439,7 @@ def main(argv: list[str] | None = None) -> int:
             hours=args.hours,
             remaining_hours=args.remaining,
             status=args.status,
+            handoff_to=args.handoff_to,
             add=args.add,
         )
         if not success:
@@ -442,9 +447,11 @@ def main(argv: list[str] | None = None) -> int:
                 sys.stderr.write(f"{err}\n")
             return 1
 
-        sys.stdout.write(
-            f"実績を actuals.yaml に記録しました (date: {args.date}, member: {args.member}, task: {args.task}, hours: {args.hours}h)\n"
-        )
+        msg = f"実績を actuals.yaml に記録しました (date: {args.date}, member: {args.member}, task: {args.task}, hours: {args.hours}h"
+        if args.handoff_to:
+            msg += f", handoff_to: {args.handoff_to}"
+        msg += ")\n"
+        sys.stdout.write(msg)
         return 0
 
     if args.subcommand == "apply":
@@ -555,7 +562,11 @@ def main(argv: list[str] | None = None) -> int:
                     reassigned = {
                         t_id: t_info["replanned"]["assigned_to"]
                         for t_id, t_info in tasks_diff.items()
-                        if t_info.get("diff", {}).get("assignee_changed") and t_info.get("replanned", {}).get("assigned_to")
+                        if (
+                            t_info.get("diff", {}).get("assignee_changed")
+                            or t_info.get("replanned", {}).get("handoff")
+                        )
+                        and t_info.get("replanned", {}).get("assigned_to")
                     }
 
                     modified_count = 0

@@ -29,6 +29,7 @@ def record_work_log(
     hours: float,
     remaining_hours: float | None = None,
     status: str | None = None,
+    handoff_to: str | None = None,
     add: bool = False,
 ) -> tuple[bool, list[str]]:
     """actuals.yaml に実績工数・進捗を事前検証の上で安全に記録する.
@@ -41,6 +42,7 @@ def record_work_log(
         hours: 稼働工数 (0.1刻み正の数値)
         remaining_hours: 残工数 (省略可)
         status: タスクステータス (省略可)
+        handoff_to: 引き継ぎ先メンバー ID (省略可)
         add: 同一日の同一メンバ・同一タスク実績が既にある場合に加算するか (デフォルト: 上書き)
 
     Returns:
@@ -67,6 +69,9 @@ def record_work_log(
         errors.append(
             f"status: 有効なステータス ({', '.join(sorted(VALID_TASK_STATUSES))}) である必要があります (指定値: {status})"
         )
+
+    if handoff_to is not None and (not isinstance(handoff_to, str) or not handoff_to.strip()):
+        errors.append("handoff_to: 非空の文字列である必要があります")
 
     if errors:
         return False, errors
@@ -165,7 +170,7 @@ def record_work_log(
         })
 
     # 5. メモリ上での進捗更新 (指定時のみ)
-    if remaining_hours is not None or status is not None:
+    if remaining_hours is not None or status is not None or handoff_to is not None:
         task_progress = actuals_dict.setdefault("task_progress", [])
         if not isinstance(task_progress, list):
             return False, ["actuals.task_progress: 配列である必要があります"]
@@ -181,6 +186,8 @@ def record_work_log(
                 target_tp["remaining_hours"] = float(remaining_hours)
             if status is not None:
                 target_tp["status"] = status
+            if handoff_to is not None:
+                target_tp["handoff_to"] = handoff_to
             if target_tp.get("status") == "completed" and remaining_hours is None:
                 target_tp["remaining_hours"] = 0.0
             elif target_tp.get("remaining_hours") == 0.0 and status is None:
@@ -231,6 +238,8 @@ def record_work_log(
                 "remaining_hours": float(calc_rem),
                 "status": calc_status,
             }
+            if handoff_to is not None:
+                new_tp["handoff_to"] = handoff_to
             task_progress.append(new_tp)
 
     # 6. 事前スキーマ検証および論理整合性検証（常に actuals: ルートキー付きの正規化形式で書き出す）

@@ -369,4 +369,88 @@ class TestReportingReplan:
         assert "| 遅延タスク数 | 0 | 0 | +0 |" in doc
         assert "| t1 | unassigned | not_started |" in doc
 
+    def test_format_replan_mermaid_handoff_split(self):
+        """Issue #54 (AC-5):
+        引き継ぎタスク (handoff) において、前任者のセクションに過去実績 [実績]、
+        後任者のセクションに未来残工数 [残工数] が分割描画されること.
+        """
+        replan_result = {
+            "replanned": {
+                "as_of_date": "2026-09-09",
+                "tasks": {
+                    "task-api": {
+                        "assigned_to": "bob",
+                        "status": "in_progress",
+                        "start_date": "2026-09-08",
+                        "end_date": "2026-09-10",
+                        "estimate_hours": 16.0,
+                        "total_logged_hours": 8.0,
+                        "remaining_hours": 8.0,
+                        "daily_hours": {
+                            "2026-09-08": 8.0,
+                            "2026-09-09": 8.0,
+                        },
+                        "handoff": {
+                            "from": "alice",
+                            "as_of": "2026-09-09",
+                        },
+                    }
+                },
+            },
+            "diff": {"tasks": {}},
+        }
+        chart = format_replan_mermaid(replan_result)
+        assert "section alice" in chart
+        assert "section bob" in chart
+        alice_section = chart.split("section alice")[1].split("section bob")[0]
+        bob_section = chart.split("section bob")[1]
+
+        assert "task-api [実績] : done, task-api-actual, 2026-09-08, 2026-09-08" in alice_section
+        assert "[残工数]" not in alice_section
+
+        assert "task-api [残工数] : active, task-api, 2026-09-09, 2026-09-09" in bob_section
+        assert "[実績]" not in bob_section
+
+    def test_format_replan_markdown_handoff_split(self):
+        """Issue #54 (AC-5):
+        Markdown 表出力において、引き継ぎタスクが前任者の過去実績と後任者の未来残工数に矛盾なく分割表示されること.
+        """
+        replan_result = {
+            "baseline": {"makespan_workdays": 2, "tasks": {}},
+            "replanned": {
+                "as_of_date": "2026-09-09",
+                "makespan_workdays": 2,
+                "tasks": {
+                    "task-api": {
+                        "assigned_to": "bob",
+                        "status": "in_progress",
+                        "start_date": "2026-09-08",
+                        "end_date": "2026-09-09",
+                        "workdays_count": 2,
+                        "estimate_hours": 16.0,
+                        "total_logged_hours": 8.0,
+                        "remaining_hours": 8.0,
+                        "daily_hours": {
+                            "2026-09-08": 8.0,
+                            "2026-09-09": 8.0,
+                        },
+                        "handoff": {
+                            "from": "alice",
+                            "as_of": "2026-09-09",
+                        },
+                    }
+                },
+            },
+            "diff": {
+                "makespan": {"baseline_workdays": 2, "replanned_workdays": 2, "slip_workdays": 0},
+                "tasks": {},
+                "summary": {"delayed_task_ids": []},
+                "recommendations": [],
+            },
+        }
+        doc = format_replan_markdown(replan_result)
+        assert "| task-api [実績] | alice |" in doc
+        assert "| task-api [残工数] | bob |" in doc
+
+
 

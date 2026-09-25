@@ -473,11 +473,22 @@ def validate_actuals(yaml_string: str) -> ValidationResult:
                         f'{prefix}: status が "completed" の場合、remaining_hours は 0.0 である必要があります (指定値: {rem})'
                     )
 
-                task_progress.append({
+                handoff_to = tp.get("handoff_to")
+                if "handoff_to" in tp:
+                    if not isinstance(handoff_to, str) or not handoff_to.strip():
+                        errors.append(
+                            f"{prefix}.handoff_to: メンバーID（空でない文字列）である必要があります (指定値: {handoff_to})"
+                        )
+
+                tp_item: dict[str, Any] = {
                     "task_id": t_id,
                     "remaining_hours": float(rem) if is_valid_rem else rem,
                     "status": status,
-                })
+                }
+                if "handoff_to" in tp and isinstance(handoff_to, str) and handoff_to.strip():
+                    tp_item["handoff_to"] = handoff_to.strip()
+
+                task_progress.append(tp_item)
 
     return ValidationResult(
         valid=len(errors) == 0,
@@ -857,6 +868,25 @@ def validate_logical_integrity(
                         f"解決のヒント: tasks.yaml にタスクを定義してください"
                     )
 
+                handoff_to = tp.get("handoff_to")
+                if handoff_to:
+                    if handoff_to not in member_ids:
+                        errors.append(
+                            f'actuals.task_progress[{i}].handoff_to: 未定義のメンバー "{handoff_to}" を参照しています。'
+                            f"解決のヒント: members.yaml にメンバーを定義してください"
+                        )
+                    elif t_id and t_id in task_map:
+                        _, t_data = task_map[t_id]
+                        req_skills = t_data.get("required_skills")
+                        if isinstance(req_skills, list) and req_skills:
+                            req_set = set(req_skills)
+                            if not req_set.issubset(member_skill_map.get(handoff_to, set())):
+                                skills_str = ", ".join(sorted(req_skills))
+                                errors.append(
+                                    f'actuals.task_progress[{i}].handoff_to: 引き継ぎ先メンバー "{handoff_to}" はタスク "{t_id}" の必須スキル [{skills_str}] をすべて保有していません。'
+                                    f"解決のヒント: 必須スキルを保有するメンバーを指定するか、members.yaml または required_skills を見直してください"
+                                )
+
     return ValidationResult(valid=len(errors) == 0, errors=errors)
 
 
@@ -909,13 +939,16 @@ def resolve_task_progress(
 
         if t_id in explicit_progress:
             tp = explicit_progress[t_id]
-            resolved.append({
+            prog_entry: dict[str, Any] = {
                 "task_id": t_id,
                 "estimate_hours": est,
                 "total_logged_hours": total_logged,
                 "remaining_hours": float(tp.get("remaining_hours", 0.0)),
                 "status": tp.get("status", "not_started"),
-            })
+            }
+            if "handoff_to" in tp and tp["handoff_to"]:
+                prog_entry["handoff_to"] = tp["handoff_to"]
+            resolved.append(prog_entry)
         else:
             rem = round(max(0.0, est - total_logged), 1)
             if rem == 0.0:
@@ -1049,6 +1082,7 @@ def validate_schedule_inputs(
     members_data: list[dict[str, Any]],
     tasks_data: list[dict[str, Any]],
     calendar_data: dict[str, Any],
+    actuals_data: dict[str, Any] | None = None,
 ) -> None:
     """スケジューリング計算前の入力データ整合性を検証する.
 
@@ -1145,5 +1179,26 @@ def validate_schedule_inputs(
                     raise ValueError(
                         f"メンバ '{m_id}' の稼働曜日 '{w}' が calendar.workdays に含まれていません。"
                     )
+
+    # 引き継ぎ先メンバー (handoff_to) の検証 (Issue #54 AC-2)
+    if actuals_data and isinstance(actuals_data, dict):
+        raw_tp = actuals_data.get("task_progress") or []
+        if isinstance(raw_tp, list):
+            for tp in raw_tp:
+                if isinstance(tp, dict) and "handoff_to" in tp and tp["handoff_to"]:
+                    h_to = tp["handoff_to"]
+                    t_id = tp.get("task_id")
+                    if h_to not in members:
+                        raise ValueError(f"引き継ぎ先メンバー '{h_to}' (handoff_to) が members に未定義です。")
+                    if t_id and t_id in tasks:
+                        t = tasks[t_id]
+                        raw_skills = t.get("required_skills")
+                        if isinstance(raw_skills, list) and raw_skills:
+                            req_skills = set(raw_skills)
+                            if not req_skills.issubset(set(members[h_to].get("skills") or [])):
+                                raise ValueError(
+                                    f"引き継ぎ先メンバー '{h_to}' (handoff_to) はタスク '{t_id}' の必須スキル {sorted(req_skills)} をすべて保有していません。"
+                                )
+
 
 

@@ -983,6 +983,45 @@ class TestLogCLI:
         assert "actuals" in content
         assert "work_logs" in content["actuals"]
 
+    def test_log_with_handoff_to_option(self, basic_project_files):
+        """taskweave log --handoff-to <member_id> で actuals.yaml の task_progress に handoff_to が記録されること (Issue #54 AC-6)."""
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "4.0",
+            "--remaining", "12.0",
+            "--handoff-to", "bob",
+        )
+        assert result.returncode == 0
+        assert "handoff_to: bob" in result.stdout
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        tp = content["actuals"]["task_progress"][0]
+        assert tp["task_id"] == "task-api"
+        assert tp["handoff_to"] == "bob"
+
+    def test_log_with_handoff_to_invalid_member(self, basic_project_files):
+        """存在しないメンバーへの引き継ぎ指定で検証エラーとなり終了コード 1 となること (Issue #54 AC-6)."""
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "4.0",
+            "--handoff-to", "unknown_member",
+        )
+        assert result.returncode == 1
+        assert "unknown_member" in result.stderr
+
 
 class TestVisualReportingCLI:
     def test_plan_format_mermaid(self, basic_project_files):
