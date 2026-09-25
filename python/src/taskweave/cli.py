@@ -388,6 +388,15 @@ def main(argv: list[str] | None = None) -> int:
             sys.stderr.write(f"再計画の実行に失敗しました: {err}\n")
             return 1
 
+        replanned_data = result.get("replanned", {})
+        status = replanned_data.get("status")
+        if status not in ("OPTIMAL", "FEASIBLE"):
+            sys.stderr.write(f"再計画の計算が完了しませんでした (ステータス: {status})\n")
+            infeasible_reasons = replanned_data.get("diagnostics", {}).get("infeasible_reasons", [])
+            for reason in infeasible_reasons:
+                sys.stderr.write(f"[!] ボトルネック診断: {reason}\n")
+            return 1
+
         if args.format == "json":
             output_content = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
         elif args.format == "mermaid":
@@ -482,6 +491,9 @@ def main(argv: list[str] | None = None) -> int:
         status = replanned_data.get("status")
         if status not in ("OPTIMAL", "FEASIBLE"):
             sys.stderr.write(f"再計画の計算が完了しませんでした (ステータス: {status})\n")
+            infeasible_reasons = replanned_data.get("diagnostics", {}).get("infeasible_reasons", [])
+            for reason in infeasible_reasons:
+                sys.stderr.write(f"[!] ボトルネック診断: {reason}\n")
             return 1
 
         diff_res = result.get("diff", {})

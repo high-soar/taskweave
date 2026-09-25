@@ -188,6 +188,30 @@ def _find_best_hint_allocation(
     return None
 
 
+def _diagnose_infeasible_reasons(
+    member_fixed_hours: dict[str, float],
+    member_total_caps: dict[str, float],
+    is_replan: bool = False,
+) -> list[str]:
+    """INFEASIBLE 時のボトルネック診断理由リストを生成する (O(M)).
+
+    客観的にキャパシティ超過と確定できるメンバーのみ理由として出力し、
+    特定できない場合に濡れ衣となる推測（False Positive）を行わない。
+    """
+    reasons: list[str] = []
+    unit_label = "残工数" if is_replan else "工数"
+    for m_id, fixed_hours in member_fixed_hours.items():
+        cap = member_total_caps.get(m_id, 0.0)
+        if fixed_hours > cap:
+            reasons.append(
+                f"メンバ '{m_id}' の計画期間内キャパシティ ({cap:.1f}h) を"
+                f"固定割当タスクの合計{unit_label} ({fixed_hours:.1f}h) が超過しています"
+            )
+    if not reasons:
+        reasons.append("制約充足解が存在しません (キャパシティ不足、または循環・納期制約違反の可能性があります)")
+    return reasons
+
+
 def solve_schedule(
     members_data: list[dict[str, Any]],
     tasks_data: list[dict[str, Any]],
@@ -400,15 +424,15 @@ def solve_schedule(
     for t_id in task_ids:
         pref_m = tasks[t_id].get("preferred_member")
         if pref_m and pref_m in member_ids:
-            # 推奨メンバーに割り当てられない場合にペナルティ 20 (Makespan 延伸 100 未満)
-            pref_penalty_terms.append(20 * (1 - assigned[t_id, pref_m]))
+            # 推奨メンバーに割り当てられない場合にペナルティ 100 (Makespan 延伸 1000 未満、end_day ペナルティ 1 より十分大)
+            pref_penalty_terms.append(100 * (1 - assigned[t_id, pref_m]))
 
     model.Minimize(
-        sum(delay[t_id] for t_id in task_ids) * 10000
-        + makespan * 100
+        sum(delay[t_id] for t_id in task_ids) * 100000
+        + makespan * 1000
         + sum(pref_penalty_terms)
-        + sum(end_day[t] for t in task_ids) * 5
-        + sum(end_day[t] - start_day[t] for t in task_ids) * 2
+        + sum(end_day[t] for t in task_ids) * 1
+        + sum(end_day[t] - start_day[t] for t in task_ids) * 1
     )
 
     # 初期解ヒントの生成 (NFR-1, NFR-2, R3: 単一ワーカーでも大規模問題で10秒以内にFEASIBLE解を保証)
@@ -620,32 +644,21 @@ def solve_schedule(
                 if total_w > 0:
                     result["member_daily_work"][m_id][workdays[d].isoformat()] = total_w / scale
     else:
-        infeasible_reasons: list[str] = []
-        for t_id in task_ids:
-            task = tasks[t_id]
+        member_fixed_hours: dict[str, float] = {m_id: 0.0 for m_id in member_ids}
+        for task in tasks.values():
             assigned_m = task.get("assigned_to")
-            if assigned_m:
-                total_m_cap = sum(daily_caps[assigned_m, d] for d in range(horizon_days)) / scale
-                assigned_tasks_for_m = [
-                    t for t in tasks.values() if t.get("assigned_to") == assigned_m
-                ]
-                total_assigned_hours = sum(t["estimate_hours"] for t in assigned_tasks_for_m)
-                if total_assigned_hours > total_m_cap:
-                    reason = (
-                        f"メンバ '{assigned_m}' の計画期間内キャパシティ ({total_m_cap:.1f}h) を"
-                        f"固定割当タスクの合計工数 ({total_assigned_hours:.1f}h) が超過しています"
-                    )
-                    if reason not in infeasible_reasons:
-                        infeasible_reasons.append(reason)
-                else:
-                    reason = (
-                        f"タスク '{t_id}' の担当者 '{assigned_m}' (assigned_to) のキャパシティまたは納期・依存関係の制約を満たすことができません"
-                    )
-                    if reason not in infeasible_reasons:
-                        infeasible_reasons.append(reason)
-        if not infeasible_reasons:
-            infeasible_reasons.append("制約充足解が存在しません (キャパシティ不足、または循環・納期制約違反の可能性があります)")
-        result["diagnostics"]["infeasible_reasons"] = infeasible_reasons
+            if assigned_m and assigned_m in member_fixed_hours:
+                member_fixed_hours[assigned_m] += task["estimate_hours"]
+
+        member_total_caps = {
+            m_id: sum(daily_caps[m_id, d] for d in range(horizon_days)) / scale
+            for m_id in member_ids
+        }
+        result["diagnostics"]["infeasible_reasons"] = _diagnose_infeasible_reasons(
+            member_fixed_hours=member_fixed_hours,
+            member_total_caps=member_total_caps,
+            is_replan=False,
+        )
 
     return result
 
@@ -969,14 +982,14 @@ def _solve_replan(
         if not (p["total_logged_hours"] > 0 and pinned_m) and not tasks[t_id].get("assigned_to"):
             pref_m = tasks[t_id].get("preferred_member")
             if pref_m and pref_m in member_ids:
-                pref_penalty_terms.append(20 * (1 - assigned[t_id, pref_m]))
+                pref_penalty_terms.append(100 * (1 - assigned[t_id, pref_m]))
 
     model.Minimize(
-        sum(delay[t_id] for t_id in future_task_ids) * 10000
-        + makespan * 100
+        sum(delay[t_id] for t_id in future_task_ids) * 100000
+        + makespan * 1000
         + sum(pref_penalty_terms)
-        + sum(end_day[t] for t in future_task_ids) * 5
-        + sum(end_day[t] - start_day[t] for t in future_task_ids) * 2
+        + sum(end_day[t] for t in future_task_ids) * 1
+        + sum(end_day[t] - start_day[t] for t in future_task_ids) * 1
     )
 
     # 初期解ヒントの生成 (NFR-2, 単一ワーカー探索順序の安定化)
@@ -1213,36 +1226,23 @@ def _solve_replan(
                     combined_m_daily[future_workdays[d].isoformat()] = tot / scale
             result["member_daily_work"][m_id] = combined_m_daily
     else:
-        infeasible_reasons: list[str] = []
+        member_fixed_hours: dict[str, float] = {m_id: 0.0 for m_id in member_ids}
         for t_id in future_task_ids:
-            task = tasks[t_id]
-            assigned_m = task.get("assigned_to")
             p = progress_by_task[t_id]
             pinned_m = task_past_member.get(t_id) if p["total_logged_hours"] > 0 else None
-            effective_m = pinned_m or assigned_m
-            if effective_m:
-                total_m_cap = sum(future_daily_caps[effective_m, d] for d in range(future_horizon_days)) / scale
-                assigned_tasks_for_m = [
-                    t for t in future_task_ids
-                    if (task_past_member.get(t) if progress_by_task[t]["total_logged_hours"] > 0 else tasks[t].get("assigned_to")) == effective_m
-                ]
-                total_assigned_hours = sum(progress_by_task[t]["remaining_hours"] for t in assigned_tasks_for_m)
-                if total_assigned_hours > total_m_cap:
-                    reason = (
-                        f"メンバ '{effective_m}' の計画期間内キャパシティ ({total_m_cap:.1f}h) を"
-                        f"固定割当タスクの合計残工数 ({total_assigned_hours:.1f}h) が超過しています"
-                    )
-                    if reason not in infeasible_reasons:
-                        infeasible_reasons.append(reason)
-                else:
-                    reason = (
-                        f"タスク '{t_id}' の担当者 '{effective_m}' のキャパシティまたは納期・依存関係の制約を満たすことができません"
-                    )
-                    if reason not in infeasible_reasons:
-                        infeasible_reasons.append(reason)
-        if not infeasible_reasons:
-            infeasible_reasons.append("制約充足解が存在しません (キャパシティ不足、または循環・納期制約違反の可能性があります)")
-        result["diagnostics"]["infeasible_reasons"] = infeasible_reasons
+            effective_m = pinned_m or tasks[t_id].get("assigned_to")
+            if effective_m and effective_m in member_fixed_hours:
+                member_fixed_hours[effective_m] += p["remaining_hours"]
+
+        member_total_caps = {
+            m_id: sum(future_daily_caps[m_id, d] for d in range(future_horizon_days)) / scale
+            for m_id in member_ids
+        }
+        result["diagnostics"]["infeasible_reasons"] = _diagnose_infeasible_reasons(
+            member_fixed_hours=member_fixed_hours,
+            member_total_caps=member_total_caps,
+            is_replan=True,
+        )
 
     return result
 

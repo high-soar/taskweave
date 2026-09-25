@@ -159,13 +159,13 @@ CP-SAT は整数変数のみを扱うため、実数である工数・稼働上�
 
 複数の目標を優先度順に重み付けして最小化します。
 
-$$\min \left( 10000 \times \sum_{t \in T} \text{delay}_t + 100 \times \text{makespan} + 20 \times \sum_{t \in T_{\text{pref}}} (1 - \text{assigned}_{t, \text{pref}(t)}) + 5 \times \sum_{t \in T} \text{end\_day}_t + 2 \times \sum_{t \in T} (\text{end\_day}_t - \text{start\_day}_t) \right)$$
+$$\min \left( 100000 \times \sum_{t \in T} \text{delay}_t + 1000 \times \text{makespan} + 100 \times \sum_{t \in T_{\text{pref}}} (1 - \text{assigned}_{t, \text{pref}(t)}) + 1 \times \sum_{t \in T} \text{end\_day}_t + 1 \times \sum_{t \in T} (\text{end\_day}_t - \text{start\_day}_t) \right)$$
 
-- **第1項 (重み 10,000)**: 納期遅延の最小化（最優先）
-- **第2項 (重み 100)**: 全体工期 Makespan の最小化
-- **第3項 (重み 20)**: 推奨担当者（`preferred_member`）への優先割当促進（工期延伸ペナルティ 100 より小さく設定し、工期最短化を阻害しない範囲で優先）
-- **第4項 (重み 5)**: 各タスクの前倒し完了促進
-- **第5項 (重み 2)**: 各タスクの所要スパンの最小化（不要な中抜けの抑制）
+- **第1項 (重み 100,000)**: 納期遅延の最小化（最優先）
+- **第2項 (重み 1,000)**: 全体工期 Makespan の最小化
+- **第3項 (重み 100)**: 推奨担当者（`preferred_member`）への優先割当促進（Makespan 1日延伸ペナルティ 1,000 より小さく、各タスクの前倒し完了促進ペナルティ 1 より十分に大きく設定することで、全体工期最短化を阻害しない範囲で確実に推奨メンバーへ割り当て）
+- **第4項 (重み 1)**: 各タスクの前倒し完了促進
+- **第5項 (重み 1)**: 各タスクの所要スパンの最小化（不要な中抜けの抑制）
 
 ---
 

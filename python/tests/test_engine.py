@@ -1774,19 +1774,10 @@ def test_solve_schedule_preferred_member_tradeoff_makespan():
         {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
         {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
     ]
-    # t1 は Alice に割り当て (8h)
-    # t2 は Bob に固定 (8h)
-    # t3 は preferred_member: "bob" (8h)
-    # もし t3 を Bob に割り当てると、Bob は t2 + t3 で 2 稼働日必要になり Makespan=2 となる。
-    # しかし Alice に割り当てれば、Alice (t1) と Bob (t2) が並行稼働でき Makespan=1 (1 稼働日) で完了可能。
-    # ペナルティ 20 < Makespan 100 のため、工期最短化 (Makespan=1) を優先して Alice に割り当てられるべき。
-    tasks = [
-        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "alice"},
-        {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "bob"},
-        {"id": "t3", "title": "Task 3", "estimate_hours": 8.0, "required_skills": ["backend"], "preferred_member": "bob"},
-    ]
-    # Alice のキャパシティを 16h (2.0) にして同日並行可能にする、あるいは t1 を短くする:
-    # より明確に: t1=4h, t2=8h, t3=4h とする (Alice max_capacity=1.0=8h, Bob max_capacity=1.0=8h)
+    # t1=4h (Alice), t2=8h (Bob), t3=4h (preferred_member: Bob)
+    # もし t3 を Bob に割り当てると、Bob は t2 + t3 で 12h 必要になり Makespan=2 となる。
+    # しかし Alice に割り当てれば、Alice (t1+t3=8h) と Bob (t2=8h) が同日並行で完了し Makespan=1 となる。
+    # ペナルティ 100 < Makespan 1000 のため、工期最短化 (Makespan=1) を優先して Alice に割り当てられるべき。
     tasks = [
         {"id": "t1", "title": "Task 1", "estimate_hours": 4.0, "required_skills": ["backend"], "assigned_to": "alice"},
         {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "bob"},
@@ -1863,5 +1854,81 @@ def test_replan_unstarted_task_respects_assigned_to():
     )
     assert result["status"] == "OPTIMAL"
     assert result["tasks"]["t1"]["assigned_to"] == "bob"
+
+
+def test_solve_schedule_infeasible_no_false_positive():
+    """[MUST] 1: 循環依存など割当以外の理由で Infeasible になる場合、assigned_to を持つタスクが冤罪（False Positive）されないこと."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "T1", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "alice", "depends_on": ["t2"]},
+        {"id": "t2", "title": "T2", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "alice", "depends_on": ["t1"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    start_date = datetime.date(2026, 9, 1)
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "INFEASIBLE"
+    reasons = result["diagnostics"]["infeasible_reasons"]
+    assert len(reasons) == 1
+    # キャパシティ超過の特定理由は出ず、包括的なフォールバック理由のみとなること
+    assert "キャパシティ" not in reasons[0] or "超過しています" not in reasons[0]
+    assert "制約充足解が存在しません" in reasons[0]
+
+
+def test_replan_with_preferred_member():
+    """[SHOULD] 6: 再計画時にも未着手タスクの preferred_member ソフト制約が機能すること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "preferred_member": "bob"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    actuals = {"work_logs": [], "task_progress": []}
+    start_date = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 2)
+
+    result = solve_schedule(
+        members_data=members,
+        tasks_data=tasks,
+        calendar_data=calendar,
+        project_start_date=start_date,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+    assert result["status"] == "OPTIMAL"
+    assert result["tasks"]["t1"]["assigned_to"] == "bob"
+
+
+def test_replan_preferred_member_tradeoff_makespan():
+    """[SHOULD] 6: 再計画時にも preferred_member による工期延伸を回避して工期最短化を優先すること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 4.0, "required_skills": ["backend"], "assigned_to": "alice"},
+        {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "bob"},
+        {"id": "t3", "title": "Task 3", "estimate_hours": 4.0, "required_skills": ["backend"], "preferred_member": "bob"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    actuals = {"work_logs": [], "task_progress": []}
+    start_date = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 2)
+
+    result = solve_schedule(
+        members_data=members,
+        tasks_data=tasks,
+        calendar_data=calendar,
+        project_start_date=start_date,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+    assert result["status"] == "OPTIMAL"
+    assert result["tasks"]["t3"]["assigned_to"] == "alice"
+
 
 

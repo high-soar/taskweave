@@ -1054,4 +1054,29 @@ def validate_schedule_inputs(
                     f"タスク '{t_id}' の必須スキル {sorted(req_skills)} をすべて保有するメンバが members に存在しません。"
                 )
 
+        assigned_to = task.get("assigned_to")
+        preferred_member = task.get("preferred_member")
+        if assigned_to and preferred_member:
+            raise ValueError(
+                f"タスク '{t_id}' に assigned_to と preferred_member の両方が指定されています。"
+            )
+        if assigned_to:
+            if assigned_to not in members:
+                raise ValueError(
+                    f"タスク '{t_id}' の担当者 '{assigned_to}' (assigned_to) が members に定義されていません。"
+                )
+            if req_skills and not req_skills.issubset(set(members[assigned_to].get("skills") or [])):
+                raise ValueError(
+                    f"タスク '{t_id}' の担当者 '{assigned_to}' (assigned_to) は必須スキル {sorted(req_skills)} をすべて保有していません。"
+                )
+        if preferred_member:
+            if preferred_member not in members:
+                raise ValueError(
+                    f"タスク '{t_id}' の推奨担当者 '{preferred_member}' (preferred_member) が members に定義されていません。"
+                )
+            if req_skills and not req_skills.issubset(set(members[preferred_member].get("skills") or [])):
+                raise ValueError(
+                    f"タスク '{t_id}' の推奨担当者 '{preferred_member}' (preferred_member) は必須スキル {sorted(req_skills)} をすべて保有していません。"
+                )
+
 
