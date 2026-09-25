@@ -5,8 +5,8 @@ description: actuals.yaml および calendar.yaml の原本スキーマ・論理
 tags:
   [schema, yaml, actuals, absences, replanning, diff, diagnostics, milestone-3]
 status: implemented
-issues: [25, 26, 27, 28, 50]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T03:00:00Z }
+issues: [25, 26, 27, 28, 50, 54]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
 verified: { by: human:high-soar, at: 2026-09-12T15:40:16Z }
 ---
 
@@ -79,8 +79,10 @@ verified: { by: human:high-soar, at: 2026-09-12T15:40:16Z }
 - **FR-11 (完了済みタスクの未来探索空間からの完全除外)**:
   - `status: completed` または `remaining_hours == 0.0` のタスクは未来ソルバーの探索変数・制約から除外すること。
   - 完了済みタスクは過去の実績ログから期間（`start_date`, `end_date`）および日別工数を生成して出力に含めること。
-- **FR-12 (着手済み未完了タスクの担当メンバ維持と残工数計画)**:
-  - 実績工数 > 0 かつ 残工数 > 0 のタスクは、着手済みの担当メンバを維持すること（ピン留め制約: `assigned[t_id, m_pinned] == 1`）。
+- **FR-12 (着手済み未完了タスクの担当メンバ維持・引き継ぎと残工数計画)**:
+  - 実績工数 > 0 かつ 残工数 > 0 のタスクは、原則として着手済みの担当メンバを維持する（ピン留め制約: `assigned[t_id, m_pinned] == 1`）。
+  - `actuals.task_progress` に `handoff_to: <member_id>` が指定されている場合は、原本 `tasks.yaml` の `assigned_to` や実績記録作業者よりも引き継ぎ先メンバーが最優先され、起算日以前の実績工数は前任者として固定した上で、起算日以降の残工数（`remaining_hours`）のみを引き継ぎ先メンバーに割り当てる（Issue #54）。
+  - 出力スキーマ `result["tasks"][t_id]` には単一担当者モデルとの整合性を保つため `assigned_to: <後任者>` を設定しつつ `handoff: {"from": <前任者>, "as_of": <起算日>}` メタデータを付与する（Issue #54）。
   - 残工数（`remaining_hours`）のみを起算日以降の稼働日に最適割り当てすること。
 - **FR-13 (未着手タスクの最適割当と依存関係連動)**:
   - 未着手タスク（実績工数 == 0 かつ 残工数 > 0）は、スキル制約・日別稼働上限を満たして起算日以降に最適割り当てされること。

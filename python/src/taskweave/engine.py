@@ -845,7 +845,7 @@ def _solve_replan(
     load_balance: bool = False,
 ) -> dict[str, Any]:
     """起算日 (As-of Date) に基づく実績固定と未完了タスクの再計画計算 (Issue #26)."""
-    validate_schedule_inputs(members_data, tasks_data, calendar_data)
+    validate_schedule_inputs(members_data, tasks_data, calendar_data, actuals_data=actuals_data)
 
     scale = 10
     base_hours_per_day = 8
@@ -1008,11 +1008,19 @@ def _solve_replan(
     for t_id in future_task_ids:
         model.Add(sum(assigned[t_id, m_id] for m_id in member_ids) == 1)
 
-    # スキル制約および着手済みタスクの担当メンバ固定 (AC-3, AC-4, AC-6)
+    # スキル制約および着手済みタスクの担当メンバ固定 / 引き継ぎ (AC-3, AC-4, AC-6, Issue #54)
     for t_id in future_task_ids:
         p = progress_by_task[t_id]
+        handoff_m = p.get("handoff_to")
         pinned_m = task_past_member.get(t_id)
-        if p["total_logged_hours"] > 0 and pinned_m:
+
+        if handoff_m and handoff_m in member_ids:
+            # actuals.yaml の引き継ぎ先 (handoff_to) を最優先 (Issue #54 AC-1, AC-3)
+            model.Add(assigned[t_id, handoff_m] == 1)
+            for other_m in member_ids:
+                if other_m != handoff_m:
+                    model.Add(assigned[t_id, other_m] == 0)
+        elif p["total_logged_hours"] > 0 and pinned_m:
             # actuals.yaml の実績作業者を最優先 (AC-6)
             model.Add(assigned[t_id, pinned_m] == 1)
             for other_m in member_ids:
@@ -1193,9 +1201,12 @@ def _solve_replan(
                 min_start = max(min_start, hint_end_day[dep_id] + 1)
 
         p = progress_by_task[t_id]
+        handoff_m = p.get("handoff_to")
         pinned_m = task_past_member.get(t_id) if p["total_logged_hours"] > 0 else None
 
-        if pinned_m:
+        if handoff_m and handoff_m in member_ids:
+            candidate_members = [handoff_m]
+        elif pinned_m:
             candidate_members = [pinned_m]
         elif tasks[t_id].get("assigned_to") and tasks[t_id]["assigned_to"] in member_ids:
             candidate_members = [tasks[t_id]["assigned_to"]]
@@ -1316,7 +1327,7 @@ def _solve_replan(
             deadline_day_val = task_deadline_days.get(t_id, future_horizon_days - 1)
             actual_delay = max(0, solver.Value(end_day[t_id]) - deadline_day_val) if raw_deadline is not None else 0
 
-            result["tasks"][t_id] = {
+            task_dict: dict[str, Any] = {
                 "assigned_to": assigned_m,
                 "start_date": s_date,
                 "end_date": e_date,
@@ -1330,6 +1341,15 @@ def _solve_replan(
                 "deadline": norm_deadline,
                 "delay_days": actual_delay,
             }
+
+            if p.get("handoff_to"):
+                from_m = task_past_member.get(t_id) or tasks[t_id].get("assigned_to") or "unassigned"
+                task_dict["handoff"] = {
+                    "from": from_m,
+                    "as_of": as_of_date.isoformat(),
+                }
+
+            result["tasks"][t_id] = task_dict
 
             if actual_delay > 0:
                 result["diagnostics"]["is_deadline_violated"] = True
@@ -1396,8 +1416,9 @@ def _solve_replan(
         member_fixed_hours: dict[str, float] = {m_id: 0.0 for m_id in member_ids}
         for t_id in future_task_ids:
             p = progress_by_task[t_id]
+            handoff_m = p.get("handoff_to")
             pinned_m = task_past_member.get(t_id) if p["total_logged_hours"] > 0 else None
-            effective_m = pinned_m or tasks[t_id].get("assigned_to")
+            effective_m = handoff_m or pinned_m or tasks[t_id].get("assigned_to")
             if effective_m and effective_m in member_fixed_hours:
                 member_fixed_hours[effective_m] += p["remaining_hours"]
 

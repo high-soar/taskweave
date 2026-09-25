@@ -4,7 +4,7 @@ title: スキーマ表現力 & 最適化強化仕様
 description: 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 tags: [schema, symmetry, deprecation, actuals, optimization, milestone-5]
 status: accepted
-issues: [50, 51, 52, 53]
+issues: [50, 51, 52, 53, 54]
 generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
 ---
 
@@ -31,14 +31,14 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
     - **As a**: 開発チームリーダーおよびプロジェクト管理者
     - **I want**: スキル要件を満たすメンバーが複数存在する場合に、全体の納期（Makespan）を最短化しつつ、特定メンバーへ過度にタスクが集中しないよう稼働率を平準化（Load Balancing）したい
     - **So that**: フルスタックや高スキルを持つメンバー1人に全作業が集中して他メンバーが手空きになる状況を防ぎ、チーム全体でバランス良く作業を分担できるようにするため
-  - **ストーリー 5 (Issue #54: 着手済みタスクの引き継ぎ・再割当 - 今後予定)**:
-    - **As a**: プロジェクト管理者およびメンバ
-    - **I want**: 着手済みタスクの残工数を別メンバーへ引き継ぎ（Reassign）できるようにしたい
-    - **So that**: メンバの長期不在や担当変更時にも柔軟に計画を継続するため
+  - **ストーリー 5 (Issue #54: 着手済みタスクの引き継ぎ・再割当（Reassign / Handoff）のサポート)**:
+    - **As a**: プロジェクト管理者および開発メンバー
+    - **I want**: メンバーの急な長期離脱や体調不良、タスク優先度の変更に伴い、着手済みタスクの残工数を別メンバーへ引き継ぎ（Reassign / Handoff）て再計画したい
+    - **So that**: 過去の実績（前任者が実施した作業ログ）を安全に保持したまま、残りの未完了工数だけを別メンバーに割り振ってプロジェクトを継続できるようにするため
 - **背景と目的**:
   先行マイルストーンにおいて、Taskweave は原本 YAML（`members.yaml`, `tasks.yaml`, `calendar.yaml`, `actuals.yaml`）を基盤とした計画・実績追跡・再計画ワークフローを確立しました。
   しかし、原本タスク定義において特定メンバーへの担当割り当てを固定・推奨する構文が存在せず、CP-SAT ソルバーがスキル適合メンバーの中から任意に割り当てていました。
-  本仕様では、原本 YAML の対称性統一（Issue #50）に続き、`tasks.yaml` にハード割当制約（`assigned_to`）およびソフト割当制約（`preferred_member`）を導入し、厳格なバリデーションとソルバー最適化（ペナルティ項）、および `actuals.yaml` による実績優先原則を定義します。
+  本仕様では、原本 YAML の対称性統一（Issue #50）に続き、個別稼働曜日（Issue #51）、`tasks.yaml` へのハード割当制約（`assigned_to`）およびソフト割当制約（`preferred_member`）の導入（Issue #52）、ソルバー探索時の負荷平準化最適化（Issue #53）、さらに実務で頻発する着手済みタスクの引き継ぎ（Issue #54: `handoff_to`）を原本 `actuals.yaml` にて安全に指定・検証・再計画・可視化できる仕組みを定義します。
 
 ---
 
@@ -103,6 +103,24 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
 - **FR-22 (CLI オプション `--load-balance` による安全なオプトイン - Issue #53 AC-4)**:
   - CLI サブコマンド `taskweave plan` および `taskweave replan` に `--load-balance` フラグを追加し、オプトインで平準化を有効化できること。
   - フラグ未指定時のデフォルトは無効（`load_balance=False`）とし、既存のベースライン計算や既存テストの後方互換性を完全に保証すること。
+- **FR-23 (`actuals.yaml` におけるタスク引き継ぎ指定 `task_progress[].handoff_to` - Issue #54)**:
+  - `actuals.yaml` の `task_progress` 配下の各タスク進捗定義に、任意の `handoff_to: <member_id>` フィールドを指定可能とする。`null`（または未指定）は引き継ぎなし（通常タスク）として許容する。
+  - 着手済みタスクに `handoff_to` が指定された場合、原本 `tasks.yaml` の `assigned_to` や実績記録作業者よりも優先して未来の担当者として適用されること。
+  - 完了済みタスク（`status: completed` または `remaining_hours: 0.0`）に対する `handoff_to` の指定は無効とし、バリデーションエラーとする。
+  - 引き継ぎタスクにおいては、前任者（最大1名）と引き継ぎ先後任者の双方が `actuals.work_logs` に実績を記録することを許容する（1タスク1担当者原則の例外緩和）。
+- **FR-24 (引き継ぎ先の存在性およびスキル充足バリデーション - Issue #54)**:
+  - `validator.py` において、`validate_actuals` は `handoff_to` が非空文字列（または `null`）であることを構文検証し、完了済みタスクへの指定を検出すること。
+  - `validate_logical_integrity` および `validate_schedule_inputs` において、引き継ぎ先メンバー（Handoff Recipient）が `members.yaml` に定義されており、かつタスクの必須スキル（`required_skills`）をすべて満たしていることを論理検証すること。
+- **FR-25 (起算日 As-of Date による実績固定と残工数の引き継ぎ先割当 - Issue #54)**:
+  - `engine.py` の再計画（`_solve_replan`）において、起算日（As-of Date）以前の実績工数・作業ログは前任者の実績として固定し、起算日以降の残工数（Remaining Hours）のみを引き継ぎ先メンバーのキャパシティに割り当てること。
+- **FR-26 (出力スキーマの単一担当者互換性と引き継ぎメタデータ付与 - Issue #54)**:
+  - 再計画出力（`result["tasks"][t_id]`）において、単一担当者モデルとの整合性を保つため `assigned_to: <後任者>` を基本としつつ、`handoff: {"from": <前任者>, "as_of": <起算日>}` メタデータを付与すること。
+- **FR-27 (レポーティング出力における前任者・後任者の分割描画 - Issue #54)**:
+  - Mermaid ガントチャート出力（`format_replan_mermaid`）において、前任者のセクションに過去実績期間（`[実績]`）を、後任者のセクションに未来予定期間（`[残工数]`）をそれぞれ分割描画し、可視化上の矛盾（後任者が過去に作業したかのような誤表示）を防ぐこと。
+  - Markdown 表出力（`format_replan_markdown`）においても、同様に過去実績と未来予定を明確に分離して表示すること。
+- **FR-28 (CLI `taskweave log` の `--handoff-to` オプションおよび差分表示 - Issue #54)**:
+  - `taskweave log` コマンドで進捗更新時に引き継ぎ担当者を指定できる `--handoff-to <member_id>` オプションをサポートすること。
+  - `taskweave replan` / `taskweave apply` の差分表示（`format_diff_summary`）において、引き継ぎ・再割当の差分を表示すること。
 
 ### 2.2 非機能要件 (NFR: Non-Functional Requirements)
 
@@ -157,18 +175,19 @@ actuals:
 
 #### フィールド詳細 (`actuals`)
 
-| フィールド名                              | 型             | 必須 | デフォルト | 説明・制約                                                                                        |
-| :---------------------------------------- | :------------- | :--- | :--------- | :------------------------------------------------------------------------------------------------ |
-| `actuals`                                 | object         | 推奨 | -          | 実績データのルートオブジェクト。                                                                  |
-| `actuals.work_logs`                       | list of object | 任意 | `[]`       | 作業実績ログのリスト。                                                                            |
-| `actuals.work_logs[].date`                | string (date)  | 必須 | -          | 作業実施日。実在する `YYYY-MM-DD` 形式の日付文字列。                                              |
-| `actuals.work_logs[].member_id`           | string         | 必須 | -          | 作業を担当したメンバの ID。`members.yaml` に定義が存在すること。                                  |
-| `actuals.work_logs[].task_id`             | string         | 必須 | -          | 作業対象のタスク ID。`tasks.yaml` に定義が存在すること。                                          |
-| `actuals.work_logs[].hours`               | number         | 必須 | -          | 投入した実績工数（時間）。`0.1` 以上の `0.1` 刻みの正の有限数値。                                 |
-| `actuals.task_progress`                   | list of object | 任意 | `[]`       | タスク進捗ステータスおよび明示的残工数のリスト。                                                  |
-| `actuals.task_progress[].task_id`         | string         | 必須 | -          | 対象タスク ID。`tasks.yaml` に定義が存在すること。同一リスト内で重複不可。                        |
-| `actuals.task_progress[].remaining_hours` | number         | 必須 | -          | 見積もり直した残工数（時間）。`0.0` 以上の `0.1` 刻みの有限数値。`status: completed` 時は `0.0`。 |
-| `actuals.task_progress[].status`          | string         | 必須 | -          | タスク状態。`not_started`, `in_progress`, `completed` のいずれか。                                |
+| フィールド名                              | 型             | 必須 | デフォルト | 説明・制約                                                                                                                                                                                                                                                                                                                              |
+| :---------------------------------------- | :------------- | :--- | :--------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `actuals`                                 | object         | 推奨 | -          | 実績データのルートオブジェクト。                                                                                                                                                                                                                                                                                                        |
+| `actuals.work_logs`                       | list of object | 任意 | `[]`       | 作業実績ログのリスト。                                                                                                                                                                                                                                                                                                                  |
+| `actuals.work_logs[].date`                | string (date)  | 必須 | -          | 作業実施日。実在する `YYYY-MM-DD` 形式の日付文字列。                                                                                                                                                                                                                                                                                    |
+| `actuals.work_logs[].member_id`           | string         | 必須 | -          | 作業を担当したメンバの ID。`members.yaml` に定義が存在すること。                                                                                                                                                                                                                                                                        |
+| `actuals.work_logs[].task_id`             | string         | 必須 | -          | 作業対象のタスク ID。`tasks.yaml` に定義が存在すること。                                                                                                                                                                                                                                                                                |
+| `actuals.work_logs[].hours`               | number         | 必須 | -          | 投入した実績工数（時間）。`0.1` 以上の `0.1` 刻みの正の有限数値。                                                                                                                                                                                                                                                                       |
+| `actuals.task_progress`                   | list of object | 任意 | `[]`       | タスク進捗ステータスおよび明示的残工数のリスト。                                                                                                                                                                                                                                                                                        |
+| `actuals.task_progress[].task_id`         | string         | 必須 | -          | 対象タスク ID。`tasks.yaml` に定義が存在すること。同一リスト内で重複不可。                                                                                                                                                                                                                                                              |
+| `actuals.task_progress[].remaining_hours` | number         | 必須 | -          | 見積もり直した残工数（時間）。`0.0` 以上の `0.1` 刻みの有限数値。`status: completed` 時は `0.0`。                                                                                                                                                                                                                                       |
+| `actuals.task_progress[].status`          | string         | 必須 | -          | タスク状態。`not_started`, `in_progress`, `completed` のいずれか。                                                                                                                                                                                                                                                                      |
+| `actuals.task_progress[].handoff_to`      | string \| null | 任意 | `null`     | 引き継ぎ先メンバー ID。未完了タスク（残工数 > 0）の未来担当者を明示的に指定し、原本 `tasks.yaml` の `assigned_to` よりも優先される。`null` 許容。完了済みタスク（`status: completed` または `remaining_hours: 0.0`）への指定は不可。`members.yaml` に定義され、タスクの必須スキル（`required_skills`）をすべて満たすこと（Issue #54）。 |
 
 ---
 
@@ -255,6 +274,64 @@ tasks:
 | :------------------------- | :----- | :--- | :--------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tasks[].assigned_to`      | string | 任意 | `null`     | ハード割当メンバー ID。指定メンバー以外への割当が禁止される。`members.yaml` に存在し、必須スキルをすべて満たす必要がある。`preferred_member` と同時指定不可。        |
 | `tasks[].preferred_member` | string | 任意 | `null`     | ソフト割当メンバー ID。全体工期を阻害しない範囲で優先的に割り当てられる。`members.yaml` に存在し、必須スキルをすべて満たす必要がある。`assigned_to` と同時指定不可。 |
+
+---
+
+### 3.6 タスク引き継ぎ・再割当スキーマ (Handoff - Issue #54)
+
+#### 3.6.1 `actuals.yaml` での引き継ぎ指定
+
+```yaml
+actuals:
+  work_logs:
+    - date: "2026-09-08"
+      member_id: alice
+      task_id: task-api
+      hours: 8.0
+    - date: "2026-09-09"
+      member_id: alice
+      task_id: task-api
+      hours: 4.0
+
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 8.0
+      status: in_progress
+      handoff_to: bob # Alice から Bob への引き継ぎ指定 (Bob が残工数 8.0h を担当)
+```
+
+#### 3.6.2 再計画出力スキーマ (`result["tasks"][t_id]`)
+
+再計画計算結果において、単一担当者モデルとの整合性を保つため `assigned_to` は後任者（`bob`）としつつ、引き継ぎ情報メタデータ `handoff` を付与します。
+
+```json
+{
+  "tasks": {
+    "task-api": {
+      "assigned_to": "bob",
+      "start_date": "2026-09-08",
+      "end_date": "2026-09-11",
+      "workdays_count": 4,
+      "estimate_hours": 16.0,
+      "total_logged_hours": 12.0,
+      "remaining_hours": 8.0,
+      "status": "in_progress",
+      "daily_hours": {
+        "2026-09-08": 8.0,
+        "2026-09-09": 4.0,
+        "2026-09-10": 4.0,
+        "2026-09-11": 4.0
+      },
+      "handoff": {
+        "from": "alice",
+        "as_of": "2026-09-10"
+      },
+      "deadline": "2026-09-11",
+      "delay_days": 0
+    }
+  }
+}
+```
 
 ---
 
@@ -424,6 +501,53 @@ tasks:
 - **前提 (Given)**: 実績データ（`actuals.yaml`）を含む原本ディレクトリにおいて、未完了タスクが複数存在する。
 - **操作 (When)**: `taskweave replan <dir> --as-of <date> --load-balance --format json` を実行する。
 - **期待結果 (Then)**: 完了済み・着手済みタスクの実績を保護しつつ、未来の未完了タスクに対して稼働率が平準化された再計画が計算されること。
+
+### シナリオ 26: `handoff_to` による引き継ぎ指定と原本優先 (Issue #54 AC-1)
+
+- **前提 (Given)**: 原本 `tasks.yaml` で `assigned_to: alice` のタスクに対し、Alice が過去に実績ログを記録しており、`actuals.yaml` の `task_progress` に `handoff_to: bob` が指定されている。
+- **操作 (When)**: `taskweave replan --as-of <date>` または `_solve_replan` を実行する。
+- **期待結果 (Then)**: 原本 `tasks.yaml` の `assigned_to: alice` よりも `handoff_to: bob` が優先され、起算日以降の残工数が Bob に割り当てられること。
+
+### シナリオ 27: 引き継ぎ先の存在性、スキル検証および完了タスク制約 (Issue #54 AC-2)
+
+- **前提 (Given)**:
+  - ケース A: `actuals.yaml` の `task_progress` の `handoff_to` に存在しないメンバー ID が指定されている。
+  - ケース B: `actuals.yaml` の `task_progress` の `handoff_to` に、タスクの `required_skills` を持たないメンバーが指定されている。
+  - ケース C: 完了済みタスク（`status: completed` または `remaining_hours: 0.0`）に `handoff_to` が指定されている。
+- **操作 (When)**: `validate_project_data` または `validate_schedule_inputs` を実行する。
+- **期待結果 (Then)**: `valid == False`（または `ValueError`）となり、未定義メンバー参照、必須スキル不適合、または完了済みタスクへの指定不可の明確なエラーが出力されること。
+
+### シナリオ 28: 起算日前後の実績固定と残工数割当 (Issue #54 AC-3)
+
+- **前提 (Given)**: タスク `task-api` に対し、起算日（`2026-09-10`）以前に Alice が 12 時間の実績を記録しており、`task_progress` で `handoff_to: bob`、`remaining_hours: 8.0` が指定されている。
+- **操作 (When)**: `replan` を実行する。
+- **期待結果 (Then)**:
+  - 起算日以前の 12 時間は Alice の作業実績（`member_daily_work["alice"]`）として固定されること。
+  - 起算日以降の残工数 8 時間のみが Bob のキャパシティ（`member_daily_work["bob"]`）に割り当てられること。
+
+### シナリオ 29: 出力スキーマでの単一担当者互換性と引き継ぎメタデータ (Issue #54 AC-4)
+
+- **前提 (Given)**: Alice から Bob への引き継ぎタスクを含む再計画が実行される。
+- **操作 (When)**: 出力 JSON の `result["tasks"][t_id]` を確認する。
+- **期待結果 (Then)**:
+  - `assigned_to` が後任者 `"bob"` であること。
+  - `handoff` オブジェクトが存在し、`{"from": "alice", "as_of": <起算日>}` が正しく記録されていること。
+
+### シナリオ 30: レポーティング出力における前任者・後任者の分割描画 (Issue #54 AC-5)
+
+- **前提 (Given)**: Alice から Bob への引き継ぎタスクを含む再計画結果が存在する。
+- **操作 (When)**: `format_replan_mermaid` および `format_replan_markdown` を実行する。
+- **期待結果 (Then)**:
+  - Mermaid ガントチャートにおいて、`section alice` に `task-api [実績] : done, ...` が描画され、`section bob` に `task-api [残工数] : active, ...` が描画されること。
+  - Markdown 表において、前任者の過去実績期間と後任者の未来予定期間が矛盾なく分割表示されること。
+
+### シナリオ 31: CLI `taskweave log --handoff-to` および差分表示 (Issue #54 AC-6)
+
+- **前提 (Given)**: 有効な原本ディレクトリが存在する。
+- **操作 (When)**: `taskweave log <date> --member alice --task task-api --hours 4.0 --remaining 8.0 --handoff-to bob` を実行し、続いて `taskweave replan` / `taskweave apply` を実行する。
+- **期待結果 (Then)**:
+  - `actuals.yaml` の `task_progress` に `handoff_to: bob` が記録されること。
+  - `taskweave replan` および `taskweave apply` の差分表示において、引き継ぎ情報（Alice -> Bob）が表示されること。
 
 ---
 

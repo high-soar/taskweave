@@ -341,6 +341,29 @@ task_progress:
         result = run_cli("replan", str(basic_project_files), "--as-of", "2026-09-09")
         assert result.returncode == 1
 
+    def test_replan_handoff_diff_output(self, basic_project_files):
+        """taskweave replan で引き継ぎ差分 (--- Reassignments & Handoffs --- の [引き継ぎ]) が出力されること (Issue #54 AC-6, SHOULD-5)."""
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_content = """actuals:
+  work_logs:
+    - date: '2026-09-08'
+      member_id: alice
+      task_id: task-api
+      hours: 4.0
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 12.0
+      status: in_progress
+      handoff_to: bob
+"""
+        (basic_project_files / "actuals.yaml").write_text(actuals_content, encoding="utf-8")
+        result = run_cli("replan", str(basic_project_files), "--as-of", "2026-09-09")
+        assert result.returncode == 0
+        assert "--- Reassignments & Handoffs" in result.stdout
+        assert "[引き継ぎ] task-api: alice -> bob" in result.stdout
+        assert "(起算日: 2026-09-09)" in result.stdout
+
+
 
 class TestPlanCLI:
     """taskweave plan サブコマンドのテスト (AC-1 ~ AC-6)."""
@@ -983,6 +1006,131 @@ class TestLogCLI:
         assert "actuals" in content
         assert "work_logs" in content["actuals"]
 
+    def test_log_with_handoff_to_option(self, basic_project_files):
+        """taskweave log --handoff-to <member_id> で actuals.yaml の task_progress に handoff_to が記録されること (Issue #54 AC-6)."""
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "4.0",
+            "--remaining", "12.0",
+            "--handoff-to", "bob",
+        )
+        assert result.returncode == 0
+        assert "handoff_to: bob" in result.stdout
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        tp = content["actuals"]["task_progress"][0]
+        assert tp["task_id"] == "task-api"
+        assert tp["handoff_to"] == "bob"
+
+    def test_log_with_handoff_to_invalid_member(self, basic_project_files):
+        """存在しないメンバーへの引き継ぎ指定で検証エラーとなり終了コード 1 となること (Issue #54 AC-6)."""
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "4.0",
+            "--handoff-to", "unknown_member",
+        )
+        assert result.returncode == 1
+        assert "unknown_member" in result.stderr
+
+    def test_log_handoff_predecessor_then_successor_logs_work_e2e(self, basic_project_files):
+        """前任者 alice による引き継ぎ指定後、後任者 bob が実績を追記できること (Issue #54 MUST-1)."""
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+
+        # charlie を members.yaml に追加して第3者検証用にする
+        members_content = """members:
+  - id: alice
+    name: "Alice"
+    skills: [frontend, backend]
+  - id: bob
+    name: "Bob"
+    skills: [frontend, backend]
+  - id: charlie
+    name: "Charlie"
+    skills: [frontend, backend]
+"""
+        (basic_project_files / "members.yaml").write_text(members_content, encoding="utf-8")
+
+        # 1. 前任者 alice が実績記録および bob への引き継ぎを指定
+        res1 = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "8.0",
+            "--remaining", "8.0",
+            "--handoff-to", "bob",
+        )
+        assert res1.returncode == 0
+
+        # 2. 翌日、後任者 bob が実績を記録（1タスク1担当者エラーにならず成功すること）
+        res2 = run_cli(
+            "log",
+            "2026-09-09",
+            str(basic_project_files),
+            "--member", "bob",
+            "--task", "task-api",
+            "--hours", "4.0",
+            "--remaining", "4.0",
+        )
+        assert res2.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        logs = content["actuals"]["work_logs"]
+        assert len(logs) == 2
+        assert logs[0]["member_id"] == "alice"
+        assert logs[1]["member_id"] == "bob"
+
+        # 3. 前任者・後任者以外の第3メンバー (charlie) が記録しようとした場合はエラー
+        res3 = run_cli(
+            "log",
+            "2026-09-10",
+            str(basic_project_files),
+            "--member", "charlie",
+            "--task", "task-api",
+            "--hours", "4.0",
+        )
+        assert res3.returncode == 1
+        assert "1タスク1担当者" in res3.stderr or "複数の担当メンバ" in res3.stderr
+
+    def test_log_with_handoff_to_strip(self, basic_project_files):
+        """handoff_to 前後に空白があっても strip されて格納されること (Issue #54 NITS-7)."""
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        actuals_path = basic_project_files / "actuals.yaml"
+
+        result = run_cli(
+            "log",
+            "2026-09-08",
+            str(basic_project_files),
+            "--member", "alice",
+            "--task", "task-api",
+            "--hours", "4.0",
+            "--remaining", "12.0",
+            "--handoff-to", "  bob  ",
+        )
+        assert result.returncode == 0
+
+        import yaml
+        content = yaml.safe_load(actuals_path.read_text(encoding="utf-8"))
+        tp = content["actuals"]["task_progress"][0]
+        assert tp["handoff_to"] == "bob"
+
+
 
 class TestVisualReportingCLI:
     def test_plan_format_mermaid(self, basic_project_files):
@@ -1309,6 +1457,48 @@ class TestApplyCLI:
 
         raw = yaml.safe_load(tasks_file.read_text(encoding="utf-8"))
         assert raw["tasks"][0]["assigned_to"] == "bob"
+
+    def test_apply_update_tasks_with_handoff(self, basic_project_files):
+        """taskweave apply --update-tasks で引き継ぎタスクの担当者が後任者に更新されること (Issue #54 AC-6, SHOULD-5)."""
+        import yaml
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        tasks_file = basic_project_files / "tasks.yaml"
+
+        # task-api を明示的に assigned_to: alice に設定
+        raw_tasks = yaml.safe_load(tasks_file.read_text(encoding="utf-8"))
+        for t in raw_tasks["tasks"]:
+            if t["id"] == "task-api":
+                t["assigned_to"] = "alice"
+        tasks_file.write_text(yaml.dump(raw_tasks, allow_unicode=True), encoding="utf-8")
+
+        # actuals で alice から bob へ引き継ぎ
+        actuals_content = """actuals:
+  work_logs:
+    - date: '2026-09-08'
+      member_id: alice
+      task_id: task-api
+      hours: 4.0
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 12.0
+      status: in_progress
+      handoff_to: bob
+"""
+        (basic_project_files / "actuals.yaml").write_text(actuals_content, encoding="utf-8")
+
+        result = run_cli(
+            "apply",
+            str(basic_project_files),
+            "--as-of",
+            "2026-09-09",
+            "--update-tasks",
+        )
+        assert result.returncode == 0
+        assert "tasks.yaml を更新しました" in result.stdout
+
+        updated = yaml.safe_load(tasks_file.read_text(encoding="utf-8"))
+        api_task = next(t for t in updated["tasks"] if t["id"] == "task-api")
+        assert api_task["assigned_to"] == "bob"
 
     def test_apply_validation_error_fails(self, basic_project_files):
         (basic_project_files / "tasks.yaml").write_text("invalid: yaml: syntax: [", encoding="utf-8")

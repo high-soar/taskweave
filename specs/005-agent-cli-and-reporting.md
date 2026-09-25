@@ -4,8 +4,8 @@ title: エージェント CLI & レポーティング仕様
 description: 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
 tags: [cli, reporting, mermaid, markdown, plan, log, apply, milestone-4]
 status: implemented
-issues: [40, 41, 42, 43, 45]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T01:30:00Z }
+issues: [40, 41, 42, 43, 45, 54]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
 verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 ---
 
@@ -103,6 +103,8 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
         - 実績が存在する場合 (`total_logged_hours > 0`): 実績期間を `done` として可視化（例: `task-api [実績] :done, task-api-actual, 2026-09-09, 2026-09-09`）。
         - 残工数が存在する場合 (`remaining_hours > 0`): 残作業日程を `active`（遅延時は `crit, active`）として可視化（例: `task-api [残工数] :active, task-api, 2026-09-10, 2026-09-12`）。
       - 未着手タスク (`not_started`): 残作業日程を通常バー（遅延時は `crit`）として可視化。
+      - 引き継ぎタスク（`handoff` メタデータ付き - Issue #54）:
+        - 前任者のセクション（`section <前任者>`）に過去実績期間（`[実績]`）を描画し、後任者のセクション（`section <後任者>`）に未来予定期間（`[残工数]`）を描画する。
 - **FR-8 (Markdown テーブル出力)**:
   - `taskweave plan --format markdown`:
     - `# スケジュール計画レポート (Taskweave Schedule Plan)`
@@ -115,6 +117,7 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
     - `## ベースライン比較サマリ`: Makespan（ベースライン vs 再計画 vs スリップ日数）、タスク総数、遅延タスク数。
     - `## 遅延タスク診断 (Delayed Tasks & Diagnostics)`: 遅延タスクID、担当者、ベースライン終了日、再計画終了日、スリップ日数、主原因、詳細。遅延なしの場合はその旨を明記。
     - `## 再計画タスク一覧 (Replanned Tasks)`: タスクID、担当者、ステータス、開始日、終了日、稼働日数、実績工数、残工数、納期、遅延日数。
+      - 引き継ぎタスク（`handoff` メタデータ付き - Issue #54）: 前任者の過去実績行（`[実績]`）と後任者の未来予定行（`[残工数]`）を分割描画し、可視化上の矛盾を防ぐ。
     - （納期緩和推奨が存在する場合）`## 納期緩和推奨 (Recommendations)`: タスクID、現納期、推奨納期、遅延日数、推奨内容。
 - **FR-8.1 (`taskweave replan` の `--output <path>` 対応)**:
   - `replan` サブコマンドにおいても `--output <path>` オプションをサポートし、指定パスにフォーマット済みテキスト（text / json / mermaid / markdown）を保存し、標準出力にも出力すること。
@@ -122,7 +125,7 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 #### 実績記録インターフェース (`taskweave log` - Issue #42)
 
 - **FR-9 (`taskweave log` コマンド構文と更新仕様)**:
-  - 基本構文: `taskweave log <date> --member <id> --task <id> --hours <h> [--remaining <h>] [--status <status>] [--add] [directory]`
+  - 基本構文: `taskweave log <date> --member <id> --task <id> --hours <h> [--remaining <h>] [--status <status>] [--handoff-to <member_id>] [--add] [directory]`
   - 引数仕様:
     - `<date>`: 作業日（`YYYY-MM-DD` 形式、必須位置引数）。
     - `--member <id>`: 実績を記録するメンバー ID（必須）。
@@ -130,6 +133,7 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
     - `--hours <h>`: 稼働工数（0.1 以上の 0.1 時間刻み正の数値、必須）。
     - `--remaining <h>`: 残工数（0.0 以上の 0.1 時間刻み数値、任意）。
     - `--status <status>`: タスク進捗状態（`not_started`, `in_progress`, `completed`、任意）。
+    - `--handoff-to <member_id>`: 引き継ぎ先メンバー ID（任意, Issue #54）。
     - `--add`: 同一日・同メンバ・同タスクの既存ログがある場合に上書きではなく工数を加算するフラグ（任意、デフォルトは上書き更新）。
     - `[directory]`: 原本 YAML ファイル群が配置されたディレクトリ（任意、デフォルト: `data`）。
   - 事前検証と安全性 (AC-3):
