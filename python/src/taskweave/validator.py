@@ -32,11 +32,84 @@ class ProjectValidationResult:
 
     valid: bool
     errors: list[str] = field(default_factory=list)
+    formatted_errors: list[str] = field(default_factory=list)
     members: list[dict[str, Any]] | None = None
     tasks: list[dict[str, Any]] | None = None
     calendar: dict[str, Any] | None = None
     actuals: dict[str, Any] | None = None
     resolved_progress: list[dict[str, Any]] | None = None
+
+
+def _get_error_path(error_msg: str) -> list[str | int]:
+    match = re.match(
+        r"^((?:members|tasks|calendar|actuals)(?:\[\d+\])?(?:\.[\w-]+(?:\[\d+\])?)*)\s*:",
+        error_msg,
+    )
+    if not match:
+        return []
+    parts = match.group(1).replace("[", ".").replace("]", "").split(".")
+    result: list[str | int] = []
+    for p in parts:
+        if p.isdigit():
+            result.append(int(p))
+        else:
+            result.append(p)
+    return result
+
+
+def _get_node_line(node: yaml.Node | None, path: list[str | int]) -> int | None:
+    if node is None:
+        return None
+    if not path:
+        return (node.start_mark.line + 1) if hasattr(node, "start_mark") and node.start_mark else None
+
+    current = node
+    for part in path:
+        if isinstance(part, int):
+            if isinstance(current, yaml.SequenceNode) and 0 <= part < len(current.value):
+                current = current.value[part]
+            else:
+                return None
+        elif isinstance(part, str):
+            if isinstance(current, yaml.MappingNode):
+                found = None
+                for k, v in current.value:
+                    if isinstance(k, yaml.ScalarNode) and k.value == part:
+                        found = v
+                        break
+                if found is not None:
+                    current = found
+                else:
+                    return None
+            else:
+                return None
+        else:
+            return None
+
+    return (current.start_mark.line + 1) if hasattr(current, "start_mark") and current.start_mark else None
+
+
+def _get_error_line(doc_node: yaml.Node | None, error_msg: str, parse_err: yaml.YAMLError | None = None) -> int:
+    if parse_err is not None and hasattr(parse_err, "problem_mark") and parse_err.problem_mark:
+        return parse_err.problem_mark.line + 1
+
+    if doc_node is not None:
+        path = _get_error_path(error_msg)
+        for length in range(len(path), 0, -1):
+            line = _get_node_line(doc_node, path[:length])
+            if line is not None:
+                return line
+        # actuals.yaml でルートキーが省略されている形式の場合、先頭の 'actuals' を除いたサブパスでも探索
+        if path and path[0] == "actuals":
+            sub_path = path[1:]
+            for length in range(len(sub_path), 0, -1):
+                line = _get_node_line(doc_node, sub_path[:length])
+                if line is not None:
+                    return line
+        if hasattr(doc_node, "start_mark"):
+            return doc_node.start_mark.line + 1
+
+    return 1
 
 
 def is_valid_date(val: Any) -> bool:
@@ -749,71 +822,76 @@ def resolve_task_progress(
     return resolved
 
 
+def _load_and_validate_file(
+    file_path: Path,
+    validator_func: Any,
+    doc_nodes: dict[str, yaml.Node | None],
+    errors: list[str],
+    formatted_errors: list[str],
+    optional: bool = False,
+) -> tuple[bool, Any]:
+    """単一の原本 YAML ファイルを読み込み、構文・スキーマを検証して行番号付きエラーを収集する."""
+    file_name = file_path.name
+    if optional and not file_path.exists():
+        return True, None
+
+    try:
+        content = file_path.read_text(encoding="utf-8")
+        parse_err: yaml.YAMLError | None = None
+        doc_node: yaml.Node | None = None
+        try:
+            doc_node = yaml.compose(content)
+        except yaml.YAMLError as y_err:
+            parse_err = y_err
+        doc_nodes[file_name] = doc_node
+
+        res = validator_func(content)
+        if not res.valid:
+            errors.extend(res.errors)
+            for err in res.errors:
+                line = _get_error_line(doc_node, err, parse_err)
+                formatted_errors.append(f"{file_name}:{line}: {err}")
+            return False, res.data
+        return True, res.data
+    except Exception as err:
+        errors.append(f"{file_name} 読み込み失敗: {err}")
+        formatted_errors.append(f"{file_name}:1: 読み込み失敗: {err}")
+        return False, None
+
+
 def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
     """プロジェクト原本 YAML ディレクトリから members, tasks, calendar, actuals を読み込んで一括検証する."""
     p = Path(dir_path)
     errors: list[str] = []
+    formatted_errors: list[str] = []
     all_valid = True
+    doc_nodes: dict[str, yaml.Node | None] = {}
 
-    members_data = None
-    tasks_data = None
-    calendar_data = None
-    actuals_data = None
+    ok, members_data = _load_and_validate_file(
+        p / "members.yaml", validate_members, doc_nodes, errors, formatted_errors
+    )
+    if not ok:
+        all_valid = False
+
+    ok, tasks_data = _load_and_validate_file(
+        p / "tasks.yaml", validate_tasks, doc_nodes, errors, formatted_errors
+    )
+    if not ok:
+        all_valid = False
+
+    ok, calendar_data = _load_and_validate_file(
+        p / "calendar.yaml", validate_calendar, doc_nodes, errors, formatted_errors
+    )
+    if not ok:
+        all_valid = False
+
+    ok, actuals_data = _load_and_validate_file(
+        p / "actuals.yaml", validate_actuals, doc_nodes, errors, formatted_errors, optional=True
+    )
+    if not ok:
+        all_valid = False
+
     resolved_progress = None
-
-    # members.yaml
-    members_path = p / "members.yaml"
-    try:
-        content = members_path.read_text(encoding="utf-8")
-        res = validate_members(content)
-        if not res.valid:
-            all_valid = False
-            errors.extend(res.errors)
-        members_data = res.data
-    except Exception as err:
-        all_valid = False
-        errors.append(f"members.yaml 読み込み失敗: {err}")
-
-    # tasks.yaml
-    tasks_path = p / "tasks.yaml"
-    try:
-        content = tasks_path.read_text(encoding="utf-8")
-        res = validate_tasks(content)
-        if not res.valid:
-            all_valid = False
-            errors.extend(res.errors)
-        tasks_data = res.data
-    except Exception as err:
-        all_valid = False
-        errors.append(f"tasks.yaml 読み込み失敗: {err}")
-
-    # calendar.yaml
-    calendar_path = p / "calendar.yaml"
-    try:
-        content = calendar_path.read_text(encoding="utf-8")
-        res = validate_calendar(content)
-        if not res.valid:
-            all_valid = False
-            errors.extend(res.errors)
-        calendar_data = res.data
-    except Exception as err:
-        all_valid = False
-        errors.append(f"calendar.yaml 読み込み失敗: {err}")
-
-    # actuals.yaml (オプショナル)
-    actuals_path = p / "actuals.yaml"
-    if actuals_path.exists():
-        try:
-            content = actuals_path.read_text(encoding="utf-8")
-            res = validate_actuals(content)
-            if not res.valid:
-                all_valid = False
-                errors.extend(res.errors)
-            actuals_data = res.data
-        except Exception as err:
-            all_valid = False
-            errors.append(f"actuals.yaml 読み込み失敗: {err}")
-
     if all_valid and members_data is not None and tasks_data is not None and calendar_data is not None:
         logical_res = validate_logical_integrity(
             members_data, tasks_data, calendar_data, actuals=actuals_data
@@ -821,12 +899,24 @@ def validate_project_data(dir_path: str | Path) -> ProjectValidationResult:
         if not logical_res.valid:
             all_valid = False
             errors.extend(logical_res.errors)
+            for err in logical_res.errors:
+                target_file = "tasks.yaml"
+                if err.startswith("members"):
+                    target_file = "members.yaml"
+                elif err.startswith("calendar"):
+                    target_file = "calendar.yaml"
+                elif err.startswith("actuals"):
+                    target_file = "actuals.yaml"
+
+                line = _get_error_line(doc_nodes.get(target_file), err)
+                formatted_errors.append(f"{target_file}:{line}: {err}")
         else:
             resolved_progress = resolve_task_progress(tasks_data, actuals=actuals_data)
 
     return ProjectValidationResult(
         valid=all_valid and len(errors) == 0,
         errors=errors,
+        formatted_errors=formatted_errors,
         members=members_data,
         tasks=tasks_data,
         calendar=calendar_data,

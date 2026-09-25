@@ -960,5 +960,123 @@ class TestResolveTaskProgress:
         assert api["status"] == "in_progress"
 
 
+class TestValidateProjectDataFormattedErrors:
+    """Issue #45: validate_project_data によるエラー整形と formatted_errors の検証."""
+
+    def test_formatted_errors_empty_on_success(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        res = validate_project_data(tmp_path)
+        assert res.valid is True
+        assert hasattr(res, "formatted_errors")
+        assert res.formatted_errors == []
+
+    def test_formatted_errors_on_schema_error(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text(
+            "tasks:\n  - id: task-missing-estimate\n    title: 'Missing estimate'\n",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is False
+        assert hasattr(res, "formatted_errors")
+        assert any(e.startswith("tasks.yaml:") and "estimate_hours" in e for e in res.formatted_errors)
+
+    def test_formatted_errors_on_syntax_error(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text(
+            "tasks:\n  - id: task-invalid-yaml\n    title: 'Unclosed\n",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is False
+        assert hasattr(res, "formatted_errors")
+        assert any(e.startswith("tasks.yaml:") and "構文エラー" in e for e in res.formatted_errors)
+
+    def test_formatted_errors_on_logical_error(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text(
+            """tasks:
+  - id: task-a
+    title: Task A
+    estimate_hours: 8.0
+    depends_on: [task-b]
+  - id: task-b
+    title: Task B
+    estimate_hours: 8.0
+    depends_on: [task-a]
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is False
+        assert hasattr(res, "formatted_errors")
+        assert any(e.startswith("tasks.yaml:") and "循環" in e for e in res.formatted_errors)
+
+    def test_formatted_errors_actuals_with_root_key(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text(
+            """actuals:
+  work_logs:
+    - date: "2026-09-08"
+      member_id: alice
+      task_id: task-api
+      hours: -5.0
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is False
+        assert hasattr(res, "formatted_errors")
+        matching = [e for e in res.formatted_errors if e.startswith("actuals.yaml:") and "hours" in e]
+        assert len(matching) > 0
+        # 1行目ではなく 6 行目付近の該当行が特定されていること
+        assert not matching[0].startswith("actuals.yaml:1:")
+
+    def test_formatted_errors_actuals_without_root_key(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text(
+            """work_logs:
+  - date: "2026-09-08"
+    member_id: alice
+    task_id: task-api
+    hours: -5.0
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is False
+        assert hasattr(res, "formatted_errors")
+        matching = [e for e in res.formatted_errors if e.startswith("actuals.yaml:") and "hours" in e]
+        assert len(matching) > 0
+        assert not matching[0].startswith("actuals.yaml:1:")
+
+    def test_formatted_errors_actuals_logical_error(self, tmp_path):
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "actuals.yaml").write_text(
+            """work_logs:
+  - date: "2026-09-08"
+    member_id: alice
+    task_id: nonexistent-task
+    hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is False
+        assert hasattr(res, "formatted_errors")
+        assert any(e.startswith("actuals.yaml:") and "未定義" in e for e in res.formatted_errors)
+
+
 
 

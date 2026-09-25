@@ -11,6 +11,7 @@ from typing import Any
 
 from taskweave.diff import compute_schedule_diff
 from taskweave.engine import load_project_data, solve_schedule, to_date
+from taskweave.validator import ProjectValidationResult
 
 
 def replan(
@@ -18,6 +19,7 @@ def replan(
     as_of_date: datetime.date | str,
     baseline_schedule: dict[str, Any] | None = None,
     project_start_date: datetime.date | str | None = None,
+    project_data: ProjectValidationResult | None = None,
 ) -> dict[str, Any]:
     """ディレクトリ内の原本および実績データを読み込み、再計画と差分算出を実行する.
 
@@ -26,12 +28,22 @@ def replan(
         as_of_date: 起算日 (YYYY-MM-DD または datetime.date)
         baseline_schedule: 事前計算されたベースライン計画 (未指定時は実績なしで動的計算)
         project_start_date: プロジェクト開始日 (未指定時は実績の最古日付または as_of_date)
+        project_data: 事前検証済みの ProjectValidationResult (指定時はディスク再読み込みをスキップ)
 
     Returns:
         {"baseline": baseline_dict, "replanned": replanned_dict, "diff": diff_dict}
     """
     as_of = to_date(as_of_date)
-    members, tasks, calendar, actuals = load_project_data(data_dir, include_actuals=True)
+    if project_data is not None:
+        if not project_data.valid:
+            err_msg = "; ".join(project_data.formatted_errors or project_data.errors)
+            raise ValueError(f"プロジェクトデータの検証に失敗しました: {err_msg}")
+        members = project_data.members or []
+        tasks = project_data.tasks or []
+        calendar = project_data.calendar or {}
+        actuals = project_data.actuals
+    else:
+        members, tasks, calendar, actuals = load_project_data(data_dir, include_actuals=True)
 
     # プロジェクト開始日の決定
     if project_start_date is not None:

@@ -4,8 +4,8 @@ title: エージェント CLI & レポーティング仕様
 description: 原本初期計画コマンド (taskweave plan)、可視化出力 (Mermaid ガントチャート・Markdown 表)、実績・進捗記録 (taskweave log)、および再計画ベースライン確定・原本更新ワークフロー (taskweave apply) の仕様
 tags: [cli, reporting, mermaid, markdown, plan, log, apply, milestone-4]
 status: implemented
-issues: [40, 41, 42, 43]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-24T23:18:00Z }
+issues: [40, 41, 42, 43, 45]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T01:30:00Z }
 verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
 ---
 
@@ -48,9 +48,10 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
   - `--start-date <YYYY-MM-DD>`: プロジェクト開始日。省略時は実績データ中の最古作業ログ日（`earliest_log_date`）、それも存在しない場合は実行日当日（`datetime.date.today()`）を起点とする。
   - `--format`: 出力形式を指定。`text`（デフォルト: 人間向けテキストサマリ）または `json`（JSON 構造化データ）。（※Issue #41 にて `markdown`, `mermaid` を追加拡張）。
   - `--output <path>`: 指定されたパスにフォーマット結果を出力・保存する。
-- **FR-2 (事前原本バリデーション連携)**:
-  - スケジュール計算の実行前に、指定ディレクトリの原本 YAML に対して `validate_directory` を実行すること。
+- **FR-2 (事前原本バリデーション連携 & 統一データローディング - Issue #45)**:
+  - スケジュール計算や再計画の実行前に、指定ディレクトリの原本 YAML に対して構文・スキーマおよび論理整合性を検証すること。
   - 構文エラーまたは論理整合性エラーが存在する場合、標準エラー出力（`stderr`）に対象ファイル・行番号・エラー内容を出力し、終了コード `1` で処理を中断すること。
+  - 原本データの読み込み・構文検証・スキーマ検証・論理整合性検証およびデータ返却を単一パス（1 回のディスク I/O とパース）で完結させ、`plan`, `replan`, `apply` の実行時における原本 YAML の二重読み込み・二重バリデーションを発生させないこと。
 - **FR-3 (初期スケジュール計算エンジン実行)**:
   - 検証通過後、原本データ（members, tasks, calendar）を `taskweave.engine.solve_schedule` に渡し、制約を満たすスケジュールを算出すること。
   - プロジェクト開始日は `--start-date` が指定された場合はその日付、未指定の場合は実績データ中の最古作業ログ日（`earliest_log_date`）、それも存在しない場合は実行日当日（`datetime.date.today()`）を起点とすること。
@@ -160,8 +161,8 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
     - `--dry-run`: 差分サマリと適用予定の変更内容を表示するのみで、ファイルへの書き込みを行わないフラグ（任意）。
     - `--update-tasks`: 再計画による納期緩和推奨（recommendations）および担当者変更（reassignments）を原本 `tasks.yaml` に反映するフラグ（任意）。
   - 処理フローと安全性 (AC-1, AC-2, AC-4):
-    1. 事前バリデーション: `validate_directory` でディレクトリ内の原本 YAML を検証。構文または論理整合性エラーがあれば stderr に出力し終了コード `1` で中断する。
-    2. 再計画実行: `replan(data_dir, as_of_date, baseline_schedule)` を呼び出し、再計画スケジュールと差分（`diff`）を算出する。ステータスが OPTIMAL / FEASIBLE でない場合は stderr に出力し終了コード `1` で中断する。
+    1. 事前バリデーション & 原本データ取得: `load_project_or_exit` でディレクトリ内の原本 YAML を検証・取得。構文または論理整合性エラーがあれば stderr に出力し終了コード `1` で中断する。
+    2. 再計画実行: `replan(data_dir, as_of_date, baseline_schedule, project_data=project_res)` を呼び出し、単一パスで取得済みの検証データを再利用して再計画スケジュールと差分（`diff`）を算出する。ステータスが OPTIMAL / FEASIBLE でない場合は stderr に出力し終了コード `1` で中断する。
     3. 差分サマリ表示 (AC-2): ベースラインからの Makespan 変化（スリップ日数）、遅延タスク一覧、納期緩和推奨（存在する場合）を標準出力に表示する。
     4. `--dry-run` 判定: `--dry-run` が指定されている場合、ファイル更新を行わず `[Dry Run] ベースラインの更新はスキップされました。` を出力して終了コード `0` で正常終了する。
     5. バックアップ作成と安全な書き込み (AC-4):
@@ -416,6 +417,14 @@ verified: { by: human:high-soar, at: 2026-09-21T11:35:23Z }
   - 終了コード `1` で中断する。
   - 標準エラー出力に対象ファイル・行番号・エラー内容が出力される。
   - ベースラインファイルや `tasks.yaml` は一切生成・変更されない。
+
+### シナリオ 22: 原本データローディングの単一パス実行（二重読み込み・二重バリデーションの完全防止 - Issue #45）
+
+- **前提 (Given)**: 有効な原本データが存在するディレクトリ。
+- **操作 (When)**: `taskweave plan`, `taskweave replan`, または `taskweave apply` を実行する。
+- **期待結果 (Then)**:
+  - 原本 YAML の読み込み・パース・スキーマ検証・論理整合性検証が各コマンドの実行につき 1 回のみ呼び出される。
+  - 後続処理（初期計画計算、再計画計算、ベースライン適用）ではすでに検証済みのデータオブジェクトが直接渡され、再度ディスクから原本 YAML が読み込まれたりバリデーションが再実行されたりしない。
 
 ---
 

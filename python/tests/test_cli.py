@@ -1417,6 +1417,96 @@ class TestApplyCLI:
         assert "tasks.yaml に更新対象の推奨・再割当はありませんでした" in result.stdout
 
 
+class TestSinglePassDataPipeline:
+    """Issue #45: 原本 YAML の二重読み込み・二重バリデーション解消の検証."""
+
+    def test_plan_executes_validation_exactly_once(self, basic_project_files, monkeypatch):
+        from unittest.mock import MagicMock
+        import taskweave.engine as eng
+        import taskweave.validator as val
+        import taskweave.cli as cli
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        mock_validate = MagicMock(wraps=val.validate_project_data)
+        monkeypatch.setattr(val, "validate_project_data", mock_validate)
+        monkeypatch.setattr(cli, "validate_project_data", mock_validate)
+        monkeypatch.setattr(eng, "validate_project_data", mock_validate)
+
+        mock_load = MagicMock(wraps=eng.load_project_data)
+        monkeypatch.setattr(eng, "load_project_data", mock_load)
+
+        exit_code = cli.main(["plan", str(basic_project_files)])
+        assert exit_code == 0
+        assert mock_validate.call_count == 1
+        assert mock_load.call_count == 0
+
+    def test_replan_executes_validation_exactly_once(self, basic_project_files, monkeypatch):
+        import importlib
+        from unittest.mock import MagicMock
+        import taskweave.engine as eng
+        import taskweave.validator as val
+        import taskweave.cli as cli
+        rep = importlib.import_module("taskweave.replan")
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        mock_validate = MagicMock(wraps=val.validate_project_data)
+        monkeypatch.setattr(val, "validate_project_data", mock_validate)
+        monkeypatch.setattr(cli, "validate_project_data", mock_validate)
+        monkeypatch.setattr(eng, "validate_project_data", mock_validate)
+
+        mock_load = MagicMock(wraps=eng.load_project_data)
+        monkeypatch.setattr(eng, "load_project_data", mock_load)
+        monkeypatch.setattr(rep, "load_project_data", mock_load)
+
+        exit_code = cli.main(["replan", str(basic_project_files), "--as-of", "2026-09-08"])
+        assert exit_code == 0
+        assert mock_validate.call_count == 1
+        assert mock_load.call_count == 0
+
+    def test_apply_executes_validation_exactly_once(self, basic_project_files, monkeypatch):
+        import importlib
+        from unittest.mock import MagicMock
+        import taskweave.engine as eng
+        import taskweave.validator as val
+        import taskweave.cli as cli
+        rep = importlib.import_module("taskweave.replan")
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        mock_validate = MagicMock(wraps=val.validate_project_data)
+        monkeypatch.setattr(val, "validate_project_data", mock_validate)
+        monkeypatch.setattr(cli, "validate_project_data", mock_validate)
+        monkeypatch.setattr(eng, "validate_project_data", mock_validate)
+
+        mock_load = MagicMock(wraps=eng.load_project_data)
+        monkeypatch.setattr(eng, "load_project_data", mock_load)
+        monkeypatch.setattr(rep, "load_project_data", mock_load)
+
+        exit_code = cli.main(["apply", str(basic_project_files), "--as-of", "2026-09-08", "--dry-run"])
+        assert exit_code == 0
+        assert mock_validate.call_count == 1
+        assert mock_load.call_count == 0
+
+    def test_load_project_or_exit_helper(self, basic_project_files, capsys):
+        from taskweave.cli import load_project_or_exit
+
+        (basic_project_files / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        res = load_project_or_exit(basic_project_files)
+        assert res is not None
+        assert res.valid is True
+        captured = capsys.readouterr()
+        assert captured.err == ""
+
+        # エラー時
+        (basic_project_files / "tasks.yaml").write_text("tasks: [invalid\n", encoding="utf-8")
+        res_err = load_project_or_exit(basic_project_files)
+        assert res_err is None
+        captured_err = capsys.readouterr()
+        assert "tasks.yaml:" in captured_err.err
+
+
 
 
 

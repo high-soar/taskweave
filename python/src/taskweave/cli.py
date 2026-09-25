@@ -14,92 +14,30 @@ import argparse
 import datetime
 import json
 from pathlib import Path
-import re
 import shutil
 import sys
 from typing import Any
 import yaml
 
 from taskweave.validator import (
-    validate_actuals,
-    validate_calendar,
-    validate_logical_integrity,
-    validate_members,
+    ProjectValidationResult,
+    validate_project_data,
     validate_tasks,
 )
 
-FILES = [
-    ("members.yaml", validate_members),
-    ("tasks.yaml", validate_tasks),
-    ("calendar.yaml", validate_calendar),
-]
 
+def load_project_or_exit(dir_path: str | Path) -> ProjectValidationResult | None:
+    """ディレクトリ内の原本 YAML を検証し、エラーがあれば stderr に出力して None を返す.
 
-def _get_error_path(error_msg: str) -> list[str | int]:
-    match = re.match(
-        r"^((?:members|tasks|calendar|actuals)(?:\[\d+\])?(?:\.[\w-]+(?:\[\d+\])?)*)\s*:",
-        error_msg,
-    )
-    if not match:
-        return []
-    parts = match.group(1).replace("[", ".").replace("]", "").split(".")
-    result: list[str | int] = []
-    for p in parts:
-        if p.isdigit():
-            result.append(int(p))
-        else:
-            result.append(p)
-    if result and result[0] == "actuals":
-        result = result[1:]
-    return result
-
-
-def _get_node_line(node: yaml.Node | None, path: list[str | int]) -> int | None:
-    if node is None:
+    原本データの読み込み・構文検証・スキーマ検証・論理整合性検証を単一パスで行う。
+    """
+    res = validate_project_data(dir_path)
+    if not res.valid:
+        err_list = res.formatted_errors or res.errors
+        for err in err_list:
+            sys.stderr.write(f"{err}\n")
         return None
-    if not path:
-        return (node.start_mark.line + 1) if hasattr(node, "start_mark") and node.start_mark else None
-
-    current = node
-    for part in path:
-        if isinstance(part, int):
-            if isinstance(current, yaml.SequenceNode) and 0 <= part < len(current.value):
-                current = current.value[part]
-            else:
-                return None
-        elif isinstance(part, str):
-            if isinstance(current, yaml.MappingNode):
-                found = None
-                for k, v in current.value:
-                    if isinstance(k, yaml.ScalarNode) and k.value == part:
-                        found = v
-                        break
-                if found is not None:
-                    current = found
-                else:
-                    return None
-            else:
-                return None
-        else:
-            return None
-
-    return (current.start_mark.line + 1) if hasattr(current, "start_mark") and current.start_mark else None
-
-
-def _get_error_line(doc_node: yaml.Node | None, error_msg: str, parse_err: yaml.YAMLError | None = None) -> int:
-    if parse_err is not None and hasattr(parse_err, "problem_mark") and parse_err.problem_mark:
-        return parse_err.problem_mark.line + 1
-
-    if doc_node is not None:
-        path = _get_error_path(error_msg)
-        for length in range(len(path), 0, -1):
-            line = _get_node_line(doc_node, path[:length])
-            if line is not None:
-                return line
-        if hasattr(doc_node, "start_mark"):
-            return doc_node.start_mark.line + 1
-
-    return 1
+    return res
 
 
 def validate_directory(dir_path: str | Path) -> bool:
@@ -108,93 +46,8 @@ def validate_directory(dir_path: str | Path) -> bool:
     Returns:
         bool: エラーが存在した場合は True、すべて成功した場合は False
     """
-    directory = Path(dir_path).resolve()
-    has_errors = False
-    parsed_data: dict[str, Any] = {}
-    doc_nodes: dict[str, yaml.Node | None] = {}
-
-    for file_name, validator_func in FILES:
-        file_path = directory / file_name
-        try:
-            source = file_path.read_text(encoding="utf-8")
-        except Exception as err:
-            has_errors = True
-            sys.stderr.write(f"{file_name}:1: 読み込み失敗: {err}\n")
-            continue
-
-        parse_err: yaml.YAMLError | None = None
-        doc_node: yaml.Node | None = None
-        try:
-            doc_node = yaml.compose(source)
-        except yaml.YAMLError as y_err:
-            parse_err = y_err
-
-        doc_nodes[file_name] = doc_node
-        res = validator_func(source)
-
-        if not res.valid:
-            has_errors = True
-            for err in res.errors:
-                line = _get_error_line(doc_node, err, parse_err)
-                sys.stderr.write(f"{file_name}:{line}: {err}\n")
-        else:
-            parsed_data[file_name] = res.data
-
-    # actuals.yaml (オプショナル原本)
-    actuals_file = "actuals.yaml"
-    actuals_path = directory / actuals_file
-    if actuals_path.exists():
-        try:
-            source = actuals_path.read_text(encoding="utf-8")
-        except Exception as err:
-            has_errors = True
-            sys.stderr.write(f"{actuals_file}:1: 読み込み失敗: {err}\n")
-        else:
-            parse_err = None
-            doc_node = None
-            try:
-                doc_node = yaml.compose(source)
-            except yaml.YAMLError as y_err:
-                parse_err = y_err
-
-            doc_nodes[actuals_file] = doc_node
-            res = validate_actuals(source)
-
-            if not res.valid:
-                has_errors = True
-                for err in res.errors:
-                    line = _get_error_line(doc_node, err, parse_err)
-                    sys.stderr.write(f"{actuals_file}:{line}: {err}\n")
-            else:
-                parsed_data[actuals_file] = res.data
-
-    if (
-        not has_errors
-        and "members.yaml" in parsed_data
-        and "tasks.yaml" in parsed_data
-        and "calendar.yaml" in parsed_data
-    ):
-        logical_res = validate_logical_integrity(
-            parsed_data["members.yaml"],
-            parsed_data["tasks.yaml"],
-            parsed_data["calendar.yaml"],
-            actuals=parsed_data.get("actuals.yaml"),
-        )
-        if not logical_res.valid:
-            has_errors = True
-            for err in logical_res.errors:
-                target_file = "tasks.yaml"
-                if err.startswith("members"):
-                    target_file = "members.yaml"
-                elif err.startswith("calendar"):
-                    target_file = "calendar.yaml"
-                elif err.startswith("actuals"):
-                    target_file = "actuals.yaml"
-
-                line = _get_error_line(doc_nodes.get(target_file), err)
-                sys.stderr.write(f"{target_file}:{line}: {err}\n")
-
-    return has_errors
+    res = load_project_or_exit(dir_path)
+    return res is None
 
 
 def format_plan_summary(plan_data: dict[str, Any]) -> str:
@@ -422,17 +275,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.subcommand == "plan":
-        has_errors = validate_directory(args.directory)
-        if has_errors:
+        project_res = load_project_or_exit(args.directory)
+        if project_res is None:
             return 1
 
-        from taskweave.engine import load_project_data, solve_schedule, to_date
+        from taskweave.engine import solve_schedule, to_date
 
-        try:
-            members, tasks, calendar, actuals = load_project_data(args.directory, include_actuals=True)
-        except Exception as err:
-            sys.stderr.write(f"原本データの読み込みに失敗しました: {err}\n")
-            return 1
+        members = project_res.members or []
+        tasks = project_res.tasks or []
+        calendar = project_res.calendar or {}
+        actuals = project_res.actuals
 
         if args.start_date:
             try:
@@ -493,8 +345,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.subcommand == "replan":
-        has_errors = validate_directory(args.directory)
-        if has_errors:
+        project_res = load_project_or_exit(args.directory)
+        if project_res is None:
             return 1
 
         baseline_data = None
@@ -515,6 +367,7 @@ def main(argv: list[str] | None = None) -> int:
                 data_dir=args.directory,
                 as_of_date=args.as_of,
                 baseline_schedule=baseline_data,
+                project_data=project_res,
             )
         except Exception as err:
             sys.stderr.write(f"再計画の実行に失敗しました: {err}\n")
@@ -571,8 +424,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.subcommand == "apply":
-        has_errors = validate_directory(args.directory)
-        if has_errors:
+        project_res = load_project_or_exit(args.directory)
+        if project_res is None:
             return 1
 
         target_dir = Path(args.directory).resolve()
@@ -604,6 +457,7 @@ def main(argv: list[str] | None = None) -> int:
                 data_dir=args.directory,
                 as_of_date=args.as_of,
                 baseline_schedule=baseline_data,
+                project_data=project_res,
             )
         except Exception as err:
             sys.stderr.write(f"再計画の実行に失敗しました: {err}\n")
