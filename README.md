@@ -3,8 +3,8 @@ type: project
 title: Taskweave
 description: コーディングエージェント向けのスケジュール調整ツール
 tags: [project, scheduling, documentation]
-status: draft
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T02:25:00Z }
+status: stable
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T02:30:00Z }
 ---
 
 # Taskweave
@@ -168,5 +168,3 @@ Python 計算エンジンの依存関係（OR-Tools 等）は `python/pyproject.
 ## AI 向け設定
 
 共通の AI 向けルールは [AGENTS.md](AGENTS.md) が正本です。GitHub Copilot と Google Antigravity の設定は、そこから参照する構成にしています。
-
-実装を開始した後、確定したデータモデル、CLI、計算方式、運用手順をこの README に反映します。

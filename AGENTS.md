@@ -19,9 +19,9 @@ The repository has finalized its source-file schema (Milestone 1), completed the
 - **Runtimes**: Node.js 24, npm, `uv`
 - **CLI Tools**: GitHub CLI (`gh`), GitHub Copilot CLI (`@github/copilot`), ripgrep (`rg`)
 - **AI Tooling**: Google Antigravity extension, GitHub Copilot Chat
-- **Application status**: The Python scheduling engine and replanning workflows are implemented in `python/` using OR-Tools CP-SAT and managed via `uv`. Source YAML schema validation is implemented in Python.
+- **Application status**: The Python scheduling engine, replanning workflows, and full agent CLI commands (`validate`, `plan`, `replan`, `log`, `apply`) with reporting capabilities (Mermaid, Markdown) are implemented in `python/` using OR-Tools CP-SAT and managed via `uv`.
 
-When implementation starts, keep source data separate from generated schedules. Preserve the distinction between estimates, planned work, and actual work so that replanning from a chosen point in time remains possible.
+Keep source data separate from generated schedules. Preserve the distinction between estimates, planned work, and actual work so that replanning from a chosen point in time remains possible.
 
 ---
 
