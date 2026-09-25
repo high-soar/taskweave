@@ -1327,11 +1327,44 @@ members:
         tasks = [{"id": "t1", "title": "Task 1", "estimate_hours": 4.0}]
         calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
         import pytest
+
         with pytest.raises(ValueError, match="sun"):
             validate_schedule_inputs(members, tasks, calendar)
 
+    def test_logical_integrity_calendar_workdays_non_list_or_non_str(self):
+        """[R1]: calendar.workdays がリストでない場合や非文字列要素が含まれてもクラッシュしないこと."""
+        members = [{"id": "alice", "name": "Alice", "workdays": ["mon"], "skills": []}]
+        tasks = [{"id": "t1", "title": "Task 1", "estimate_hours": 4.0}]
+        # 非リスト
+        res1 = validate_logical_integrity(members, tasks, {"workdays": "mon"})
+        assert isinstance(res1.valid, bool)
+        # 非文字列要素混入
+        res2 = validate_logical_integrity(members, tasks, {"workdays": [123, "mon"]})
+        assert isinstance(res2.valid, bool)
 
+    def test_logical_integrity_error_message_contains_member_id(self):
+        """[R4]: エラーメッセージにメンバ ID が含まれること."""
+        members = [{"id": "alice", "name": "Alice", "workdays": ["mon", "sat"], "skills": []}]
+        tasks = [{"id": "t1", "title": "Task 1", "estimate_hours": 4.0}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        res = validate_logical_integrity(members, tasks, calendar)
+        assert res.valid is False
+        assert any('メンバ: "alice"' in e for e in res.errors)
 
+    def test_validate_schedule_inputs_workdays_invalid_type_or_empty(self):
+        """[R2]: validate_schedule_inputs で workdays の型不正や空配列に ValueError が送出されること."""
+        tasks = [{"id": "t1", "title": "Task 1", "estimate_hours": 4.0}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        import pytest
 
+        # 文字列型
+        with pytest.raises(ValueError, match="リストである必要があります"):
+            validate_schedule_inputs([{"id": "alice", "workdays": "mon"}], tasks, calendar)
 
+        # 空配列
+        with pytest.raises(ValueError, match="リストである必要があります"):
+            validate_schedule_inputs([{"id": "alice", "workdays": []}], tasks, calendar)
 
+        # 非文字列要素
+        with pytest.raises(ValueError, match="calendar.workdays に含まれていません"):
+            validate_schedule_inputs([{"id": "alice", "workdays": [123]}], tasks, calendar)

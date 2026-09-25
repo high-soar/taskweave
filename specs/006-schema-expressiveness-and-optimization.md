@@ -5,8 +5,7 @@ description: 原本 YAML スキーマのルートキー対称性統一、非推�
 tags: [schema, symmetry, deprecation, actuals, optimization, milestone-5]
 status: accepted
 issues: [50, 51]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:00:00Z }
-verified: { by: human:high-soar, at: 2026-09-25T05:00:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:15:00Z }
 ---
 
 # スキーマ表現力 & 最適化強化仕様 (006-schema-expressiveness-and-optimization)

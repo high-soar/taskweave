@@ -1874,3 +1874,28 @@ def test_member_workdays_replan():
     assert t1["daily_hours"]["2026-09-03"] == 8.0
 
 
+def test_member_workdays_horizon_auto_calculation_for_part_time_member():
+    """[R3]: 週1日稼働メンバーに工数が大きいタスクが割り当てられた場合でも、Horizon が適切に自動計算され OPTIMAL に解けること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "workdays": ["mon"], "skills": ["backend"]},
+    ]
+    # 56 時間 = 8h * 7 週分（約 35 プロジェクト営業日が必要）
+    tasks = [
+        {"id": "t1", "title": "Large Task", "estimate_hours": 56.0, "required_skills": ["backend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    # 2026-09-07 は月曜日
+    start_date = datetime.date(2026, 9, 7)
+
+    # horizon_days を未指定（自動計算）で実行
+    res = solve_schedule(members, tasks, calendar, start_date, horizon_days=None)
+    assert res["status"] == "OPTIMAL"
+    t1 = res["tasks"]["t1"]
+    assert t1["assigned_to"] == "alice"
+    assert t1["actual_active_days"] == 7
+    # 7 週目の月曜日に終了
+    assert t1["end_date"] == "2026-10-19"

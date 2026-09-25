@@ -655,21 +655,27 @@ def validate_logical_integrity(
         if visited.get(task_id, 0) == 0:
             dfs(task_id, [])
 
-    # 3. メンバー個別稼働曜日のカレンダー営業日整合性チェック (Issue #51 AC-2)
-    cal_workdays_list = calendar.get("workdays", ["mon", "tue", "wed", "thu", "fri"]) if isinstance(calendar, dict) else ["mon", "tue", "wed", "thu", "fri"]
-    cal_workdays_set = {w for w in cal_workdays_list if isinstance(w, str)}
+    # 3. メンバー個別稼働曜日のカレンダー営業日整合性チェック (Issue #51 AC-2, [R1], [R4])
+    raw_cal_wd = calendar.get("workdays") if isinstance(calendar, dict) else None
+    cal_workdays_list = (
+        [w for w in raw_cal_wd if isinstance(w, str)]
+        if isinstance(raw_cal_wd, list)
+        else ["mon", "tue", "wed", "thu", "fri"]
+    )
+    cal_workdays_set = set(cal_workdays_list)
     if isinstance(members, list):
         for i, m in enumerate(members):
             if not isinstance(m, dict):
                 continue
             m_workdays = m.get("workdays")
             if isinstance(m_workdays, list):
-                invalid_days = [w for w in m_workdays if w not in cal_workdays_set]
+                invalid_days = [w for w in m_workdays if not isinstance(w, str) or w not in cal_workdays_set]
                 if invalid_days:
                     cal_str = ", ".join(cal_workdays_list)
                     inv_str = ", ".join(repr(w) for w in invalid_days)
+                    m_id = m.get("id", f"index {i}")
                     errors.append(
-                        f'members[{i}].workdays: プロジェクトカレンダーの稼働曜日 ({cal_str}) に含まれない曜日 ({inv_str}) が指定されています。'
+                        f'members[{i}].workdays (メンバ: "{m_id}"): プロジェクトカレンダーの稼働曜日 ({cal_str}) に含まれない曜日 ({inv_str}) が指定されています。'
                         f"解決のヒント: calendar.yaml の稼働曜日に曜日を追加するか、メンバの稼働曜日を見直してください"
                     )
 
@@ -1051,12 +1057,16 @@ def validate_schedule_inputs(
                     f"タスク '{t_id}' の必須スキル {sorted(req_skills)} をすべて保有するメンバが members に存在しません。"
                 )
 
-    # メンバ個別稼働曜日の検証 (AC-2)
+    # メンバ個別稼働曜日の検証 (AC-2, [R2])
     for m_id, member in members.items():
-        m_workdays = member.get("workdays")
-        if isinstance(m_workdays, list):
+        if "workdays" in member and member["workdays"] is not None:
+            m_workdays = member["workdays"]
+            if not isinstance(m_workdays, list) or len(m_workdays) == 0:
+                raise ValueError(
+                    f"メンバ '{m_id}' の workdays は1つ以上の有効な曜日文字列のリストである必要があります。"
+                )
             for w in m_workdays:
-                if w not in allowed_weekdays:
+                if not isinstance(w, str) or w not in allowed_weekdays:
                     raise ValueError(
                         f"メンバ '{m_id}' の稼働曜日 '{w}' が calendar.workdays に含まれていません。"
                     )

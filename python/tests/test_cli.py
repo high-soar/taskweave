@@ -1657,12 +1657,3 @@ class TestMemberWorkdaysCLI:
         assert "2026-09-01" in res_mermaid.stdout
         assert "2026-09-03" in res_mermaid.stdout
 
-
-
-
-
-
-
-
-
-
