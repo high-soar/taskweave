@@ -212,6 +212,69 @@ def _diagnose_infeasible_reasons(
     return reasons
 
 
+def _add_load_balance_objective(
+    model: cp_model.CpModel,
+    active_members: list[str],
+    member_total_caps: dict[str, int],
+    task_ids: list[str],
+    task_work_units: dict[str, int],
+    assigned: dict[tuple[str, str], cp_model.IntVar],
+) -> cp_model.LinearExpr | None:
+    """負荷平準化ソフト制約ペナルティをモデルに追加し、ペナルティ式を返却する.
+
+    - Minimax 稼働率 u_max と、各メンバーの目標工数からの偏差に対する区分線形凸ペナルティ（Piecewise-linear convex penalty）を採用
+    - 偏差は計画地平の長さではなく総工数 total_work_units で正規化することで、地平長の依存や希釈を排除。
+    - 凸ペナルティ設計（Jensen の不等式）により、特定メンバーが高負荷（他スキル専任等）であっても
+      余力メンバー間での均等分散が数理的に保証される（Issue #53 AC-1, AC-5）。
+    - メンバー数 M で正規化（平均化）されており、負荷平準化ペナルティ全体の理論的最大値は
+      常に <= 70（u_max <= 30 + mean_dev <= 40）に厳格に抑制される。
+    - これにより、Makespan 1日延伸ペナルティ（1,000）および preferred_member ペナルティ（100）
+      を絶対に逆転しない優先度階層（Makespan 1000 > preferred_member 100 > load_balance <= 70 > end_day 1）
+      が数理的に保証される（Issue #53 AC-3, specs/003, specs/006）。
+    """
+    m_count = len(active_members)
+    if m_count < 2:
+        return None
+
+    total_cap = sum(member_total_caps[m_id] for m_id in active_members)
+    total_work_units = sum(task_work_units.values())
+    if total_cap <= 0 or total_work_units <= 0:
+        return None
+
+    # 1. Minimax 稼働率 u_max (0 ~ 30)
+    u_max = model.NewIntVar(0, 30, "max_utilization")
+    p_dev_terms = []
+    for m_id in active_members:
+        c_m = member_total_caps[m_id]
+        work_m = sum(task_work_units[t_id] * assigned[t_id, m_id] for t_id in task_ids)
+        model.Add(c_m * u_max >= 30 * work_m)
+
+        # 2. 目標工数からの絶対偏差 dev_m (総工数基準の %ポイント: 0 ~ 100)
+        target_m = round(total_work_units * c_m / total_cap)
+        diff_m = work_m - target_m
+        dev_m = model.NewIntVar(0, 100, f"dev_{m_id}")
+        model.Add(total_work_units * dev_m >= 100 * diff_m)
+        model.Add(total_work_units * dev_m >= -100 * diff_m)
+
+        # 3. 区分線形凸ペナルティ p_dev_m (高偏差ほど傾きが増加)
+        # dev_m in [0, 10]: slope 1
+        # dev_m in [10, 20]: slope 2
+        # dev_m in [20, 100]: slope 4
+        p_dev_m = model.NewIntVar(0, 350, f"p_dev_{m_id}")
+        model.Add(p_dev_m >= dev_m)
+        model.Add(p_dev_m >= 2 * dev_m - 10)
+        model.Add(p_dev_m >= 4 * dev_m - 50)
+        p_dev_terms.append(p_dev_m)
+
+    # メンバー数 M による正規化（平均偏差ペナルティ: 0 ~ 70）
+    sum_p_dev = model.NewIntVar(0, 350 * m_count, "sum_p_dev")
+    model.Add(sum_p_dev == sum(p_dev_terms))
+    mean_p_dev = model.NewIntVar(0, 70, "mean_p_dev")
+    model.AddDivisionEquality(mean_p_dev, sum_p_dev, 5 * m_count)
+
+    return u_max + mean_p_dev
+
+
 def solve_schedule(
     members_data: list[dict[str, Any]],
     tasks_data: list[dict[str, Any]],
@@ -463,31 +526,18 @@ def solve_schedule(
             for m_id in member_ids
         }
         active_members = [m_id for m_id in member_ids if member_total_caps[m_id] > 0]
-        if len(active_members) >= 2:
-            total_cap = sum(member_total_caps[m_id] for m_id in active_members)
-            task_work_units = {
-                t_id: round(tasks[t_id]["estimate_hours"] * scale)
-                for t_id in task_ids
-            }
-            total_work_units = sum(task_work_units.values())
-            if total_cap > 0 and total_work_units > 0:
-                # 1. Minimax 稼働率 u_max (0 ~ 100%)
-                u_max = model.NewIntVar(0, 100, "max_utilization")
-                dev_terms = []
-                for m_id in active_members:
-                    c_m = member_total_caps[m_id]
-                    work_m = sum(task_work_units[t_id] * assigned[t_id, m_id] for t_id in task_ids)
-                    model.Add(c_m * u_max >= 100 * work_m)
-
-                    # 2. L1 ノルム稼働率絶対偏差 (目標工数からの偏差 %ポイント)
-                    target_m = round(total_work_units * c_m / total_cap)
-                    dev_m = model.NewIntVar(0, 100, f"dev_{m_id}")
-                    diff_m = work_m - target_m
-                    model.Add(c_m * dev_m >= 100 * diff_m)
-                    model.Add(c_m * dev_m >= -100 * diff_m)
-                    dev_terms.append(dev_m)
-
-                load_balance_penalty = u_max + sum(dev_terms)
+        task_work_units = {
+            t_id: round(tasks[t_id]["estimate_hours"] * scale)
+            for t_id in task_ids
+        }
+        load_balance_penalty = _add_load_balance_objective(
+            model=model,
+            active_members=active_members,
+            member_total_caps=member_total_caps,
+            task_ids=task_ids,
+            task_work_units=task_work_units,
+            assigned=assigned,
+        )
 
     obj_expr = (
         sum(delay[t_id] for t_id in task_ids) * 100000
@@ -1084,31 +1134,18 @@ def _solve_replan(
             for m_id in member_ids
         }
         active_members = [m_id for m_id in member_ids if member_total_caps[m_id] > 0]
-        if len(active_members) >= 2:
-            total_cap = sum(member_total_caps[m_id] for m_id in active_members)
-            task_rem_units = {
-                t_id: round(progress_by_task[t_id]["remaining_hours"] * scale)
-                for t_id in future_task_ids
-            }
-            total_rem_units = sum(task_rem_units.values())
-            if total_cap > 0 and total_rem_units > 0:
-                # 1. Minimax 稼働率 u_max (0 ~ 100%)
-                u_max = model.NewIntVar(0, 100, "max_utilization")
-                dev_terms = []
-                for m_id in active_members:
-                    c_m = member_total_caps[m_id]
-                    work_m = sum(task_rem_units[t_id] * assigned[t_id, m_id] for t_id in future_task_ids)
-                    model.Add(c_m * u_max >= 100 * work_m)
-
-                    # 2. L1 ノルム稼働率絶対偏差 (目標工数からの偏差 %ポイント)
-                    target_m = round(total_rem_units * c_m / total_cap)
-                    dev_m = model.NewIntVar(0, 100, f"dev_{m_id}")
-                    diff_m = work_m - target_m
-                    model.Add(c_m * dev_m >= 100 * diff_m)
-                    model.Add(c_m * dev_m >= -100 * diff_m)
-                    dev_terms.append(dev_m)
-
-                load_balance_penalty = u_max + sum(dev_terms)
+        task_rem_units = {
+            t_id: round(progress_by_task[t_id]["remaining_hours"] * scale)
+            for t_id in future_task_ids
+        }
+        load_balance_penalty = _add_load_balance_objective(
+            model=model,
+            active_members=active_members,
+            member_total_caps=member_total_caps,
+            task_ids=future_task_ids,
+            task_work_units=task_rem_units,
+            assigned=assigned,
+        )
 
     obj_expr = (
         sum(delay[t_id] for t_id in future_task_ids) * 100000

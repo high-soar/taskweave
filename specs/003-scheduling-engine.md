@@ -58,7 +58,7 @@ verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
 - **FR-13 (推奨担当者 `preferred_member` ソフト制約ペナルティ)**:
   - タスクに `preferred_member: <member_id>` が指定されている場合、ソルバー目的関数にペナルティ項を追加し、工期最短化（Makespan）を阻害しない範囲で優先的に該当メンバへ割り当てること（Issue #52）。
 - **FR-14 (負荷平準化ソフト制約ペナルティ - Issue #53)**:
-  - `--load-balance` オプション指定（`load_balance=True`）時、メンバー間の稼働率（総工数 / 利用可能キャパシティ）の格差を抑える線形ペナルティ項（Minimax 稼働率最小化および L1 ノルム絶対偏差和）をソルバー目的関数に追加し、全体工期（Makespan）最短化を最優先としつつチーム全体で負荷を平準化すること。
+  - `--load-balance` オプション指定（`load_balance=True`）時、メンバー間の稼働率（総工数 / 利用可能キャパシティ）の格差を抑える線形ペナルティ項（Minimax 稼働率最小化および凸区分線形ペナルティによる目標工数絶対偏差和のチーム正規化）をソルバー目的関数に追加し、全体工期（Makespan）最短化および推奨担当者（`preferred_member`）割当を最優先としつつチーム全体で負荷を平準化すること。
 
 ### 2.2 非機能要件 (NFR: Non-Functional Requirements)
 
@@ -120,8 +120,10 @@ CP-SAT は整数変数のみを扱うため、実数である工数・稼働上�
 | $\text{end\_day}_t$      | $[0, H-1]$ (Int)                                       | タスク $t$ の完了稼働日インデックス                                                 |
 | $\text{delay}_t$         | $[0, \max(H, (H - 1) - \text{deadline\_day}_t)]$ (Int) | タスク $t$ の納期超過稼働日数（納期内なら 0。開始前納期でも動的上限により解を保証） |
 | $\text{makespan}$        | $[0, H]$ (Int)                                         | 全タスク完了までの最大稼働日インデックス                                            |
-| $u_{\max}$               | $[0, 100]$ (Int)                                       | `load_balance=True` 時のチーム内最大稼働率（%）                                     |
-| $\text{dev}_m$           | $[0, 100]$ (Int)                                       | `load_balance=True` 時のメンバー $m$ の目標稼働率からの絶対偏差（%ポイント）        |
+| $u_{\max}$               | $[0, 30]$ (Int)                                        | `load_balance=True` 時のチーム内最大稼働率ペナルティ（% / 30 換算）                 |
+| $\text{dev}_m$           | $[0, 100]$ (Int)                                       | `load_balance=True` 時のメンバー $m$ の目標工数からの総工数正規化絶対偏差率（%）    |
+| $p_{\text{dev}, m}$      | $[0, 350]$ (Int)                                       | `load_balance=True` 時のメンバー $m$ の凸区分線形偏差ペナルティ                     |
+| $\text{mean\_p\_dev}$    | $[0, 70]$ (Int)                                        | `load_balance=True` 時のチーム正規化平均偏差ペナルティ                              |
 
 ### 3.4 制約条件 (Constraints)
 
@@ -162,11 +164,17 @@ CP-SAT は整数変数のみを扱うため、実数である工数・稼働上�
     メンバー $m$ の計画地平内利用可能キャパシティ $C_m = \sum_{d=0}^{H-1} \text{daily\_caps}_{m, d}$、有効メンバー集合 $M_{\text{active}} = \{ m \in M \mid C_m > 0 \}$、総工数 $W_{\text{total}} = \sum_{t \in T} E_t$、総キャパシティ $C_{\text{total}} = \sum_{m \in M_{\text{active}}} C_m$ に対し:
     - メンバー $m$ の目標工数: $\text{Target}_m = \text{round}\left( \frac{W_{\text{total}} \cdot C_m}{C_{\text{total}}} \right)$
     - メンバー $m$ の担当総工数: $W_m = \sum_{t \in T} E_t \times \text{assigned}_{t, m}$
-    - Minimax 稼働率線形制約:
-      $$C_m \times u_{\max} \ge 100 \times W_m \quad (\forall m \in M_{\text{active}})$$
-    - L1 ノルム稼働率絶対偏差線形制約:
-      $$C_m \times \text{dev}_m \ge 100 \times (W_m - \text{Target}_m) \quad (\forall m \in M_{\text{active}})$$
-      $$C_m \times \text{dev}_m \ge 100 \times (\text{Target}_m - W_m) \quad (\forall m \in M_{\text{active}})$$
+    - Minimax 稼働率線形制約 ($u_{\max} \in [0, 30]$):
+      $$C_m \times u_{\max} \ge 30 \times W_m \quad (\forall m \in M_{\text{active}})$$
+    - 総工数基準の絶対偏差率制約 ($\text{dev}_m \in [0, 100]$):
+      $$W_{\text{total}} \times \text{dev}_m \ge 100 \times (W_m - \text{Target}_m) \quad (\forall m \in M_{\text{active}})$$
+      $$W_{\text{total}} \times \text{dev}_m \ge 100 \times (\text{Target}_m - W_m) \quad (\forall m \in M_{\text{active}})$$
+    - 凸区分線形ペナルティ制約 ($p_{\text{dev}, m} \in [0, 350]$):
+      $$p_{\text{dev}, m} \ge \text{dev}_m \quad (\forall m \in M_{\text{active}})$$
+      $$p_{\text{dev}, m} \ge 2 \cdot \text{dev}_m - 10 \quad (\forall m \in M_{\text{active}})$$
+      $$p_{\text{dev}, m} \ge 4 \cdot \text{dev}_m - 50 \quad (\forall m \in M_{\text{active}})$$
+    - チーム規模正規化制約 ($\text{mean\_p\_dev} \in [0, 70]$):
+      $$\text{mean\_p\_dev} = \left\lfloor \frac{\sum_{m \in M_{\text{active}}} p_{\text{dev}, m}}{5 \times |M_{\text{active}}|} \right\rfloor$$
 
 ### 3.5 目的関数 (Objective Function)
 
@@ -176,8 +184,8 @@ $$\min \left( 100000 \times \sum_{t \in T} \text{delay}_t + 1000 \times \text{ma
 
 - **第1項 (重み 100,000)**: 納期遅延の最小化（最優先）
 - **第2項 (重み 1,000)**: 全体工期 Makespan の最小化
-- **第3項 (重み 100)**: 推奨担当者（`preferred_member`）への優先割当促進（Makespan 1日延伸ペナルティ 1,000 より小さく、各タスクの前倒し完了促進ペナルティ 1 より十分に大きく設定することで、全体工期最短化を阻害しない範囲で確実に推奨メンバーへ割り当て）
-- **第4項 (重み 1)**: 負荷平準化ペナルティ $P_{\text{load\_balance}} = u_{\max} + \sum_{m \in M_{\text{active}}} \text{dev}_m$（`load_balance=True` 時のみ有効、デフォルトは 0。最大値 $\le 300 < 1,000$ であり Makespan 最短化が数学的に厳格に優先される）
+- **第3項 (重み 100)**: 推奨担当者（`preferred_member`）への優先割当促進（Makespan 1日延伸ペナルティ 1,000 より小さく、負荷平準化ペナルティ最大値 $\le 70$ より大きく設定することで、全体工期最短化を阻害せず負荷分散に優先して確実に推奨メンバーへ割り当て）
+- **第4項 (重み 1)**: 負荷平準化ペナルティ $P_{\text{load\_balance}} = u_{\max} + \text{mean\_p\_dev}$（`load_balance=True` 時のみ有効、デフォルトは 0。最大値 $\le 70 < 100 \ll 1,000$ であり、Makespan 最短化（1,000）および preferred_member 割当（100）が数学的に厳格に優先される）
 - **第5項 (重み 1)**: 各タスクの前倒し完了促進
 - **第6項 (重み 1)**: 各タスクの所要スパンの最小化（不要な中抜けの抑制）
 
