@@ -5,8 +5,8 @@ description: actuals.yaml および calendar.yaml の原本スキーマ・論理
 tags:
   [schema, yaml, actuals, absences, replanning, diff, diagnostics, milestone-3]
 status: implemented
-issues: [25, 26, 27, 28]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T15:40:16Z }
+issues: [25, 26, 27, 28, 50]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T03:00:00Z }
 verified: { by: human:high-soar, at: 2026-09-12T15:40:16Z }
 ---
 
@@ -41,10 +41,11 @@ verified: { by: human:high-soar, at: 2026-09-12T15:40:16Z }
 
 ### 2.1 機能要件 (FR: Functional Requirements)
 
-- **FR-1 (`actuals.yaml` スキーマ定義)**:
+- **FR-1 (`actuals.yaml` スキーマ定義とルートキー対称性)**:
   - 日々の実績作業ログ `work_logs`（日付 `date`, 担当者 `member_id`, タスク `task_id`, 実績工数 `hours`）を定義できること。
   - タスク進捗状況 `task_progress`（タスク `task_id`, 残工数 `remaining_hours`, 状態 `status`）を定義できること。
-  - トップレベル直下形式（`work_logs:`, `task_progress:`）に加え、他の原本 YAML と同様の `actuals:` ルートキーでラップされた形式（`actuals:\n  work_logs: ...`）も透過的に許容すること。
+  - 他の原本 YAML と同様に対称的な `actuals:` ルートキーでラップされた形式（`actuals:\n  work_logs: ...`）を標準・推奨形式とすること。
+  - 旧形式であるトップレベル直下形式（`work_logs:`, `task_progress:`）も後方互換性のため透過的に許容するが、非推奨警告（Deprecation Warning）を出力すること（Issue #50）。
 - **FR-2 (`calendar.yaml` の個別不在拡張)**:
   - `calendar.yaml` の `calendar` オブジェクト配下に、メンバ個別の不在情報 `absences`（担当者 `member_id`, 不在日 `date`, 事由 `name`）を定義できること。
   - `absences` が省略されている場合でも、従来の `calendar.yaml` として後方互換性を完全に維持すること。
@@ -138,26 +139,29 @@ data/
 日々の作業実績工数と、必要に応じたタスクの最新進捗状況を記録します。
 
 > [!NOTE]
-> `actuals.yaml` は、トップレベル直下に `work_logs` / `task_progress` を配置する形式に加え、他の原本（`members.yaml`, `calendar.yaml` 等）と整合性を持たせた `actuals:` ルートキーでラップした形式（`actuals:\n  work_logs: ...`）のどちらで記述しても透過的に解釈されます。
+> **推奨形式と非推奨方針 (Milestone 5)**:
+> `actuals.yaml` は、他の原本（`members.yaml`, `calendar.yaml`, `tasks.yaml`）と対称性を統一した `actuals:` ルートキーでラップした形式（`actuals:\n  work_logs: ...`）を推奨・標準形式とします。
+> トップレベル直下に `work_logs` / `task_progress` を配置する旧形式も後方互換性のため透過的に解釈されますが、バリデーション時に非推奨警告（Deprecation Warning）が出力されます（詳細は `specs/006-schema-expressiveness-and-optimization.md` 参照）。
 
 ```yaml
-work_logs:
-  - date: "2026-09-10"
-    member_id: alice
-    task_id: task-api
-    hours: 6.0
-  - date: "2026-09-11"
-    member_id: alice
-    task_id: task-api
-    hours: 4.5
+actuals:
+  work_logs:
+    - date: "2026-09-10"
+      member_id: alice
+      task_id: task-api
+      hours: 6.0
+    - date: "2026-09-11"
+      member_id: alice
+      task_id: task-api
+      hours: 4.5
 
-task_progress:
-  - task_id: task-api
-    remaining_hours: 5.5
-    status: in_progress
-  - task_id: task-setup
-    remaining_hours: 0.0
-    status: completed
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 5.5
+      status: in_progress
+    - task_id: task-setup
+      remaining_hours: 0.0
+      status: completed
 ```
 
 #### フィールド詳細 (`actuals.yaml`)

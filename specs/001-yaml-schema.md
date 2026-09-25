@@ -4,8 +4,8 @@ title: 原本 YAML スキーマ定義
 description: メンバ・タスク・制約・カレンダーの原本データモデルおよびスキーマ仕様
 tags: [schema, yaml, milestone-1]
 status: implemented
-issues: [1, 2, 3, 4, 23]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-10T14:45:00Z }
+issues: [1, 2, 3, 4, 23, 50]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T03:00:00Z }
 verified: { by: human:high-soar, at: 2026-09-10T14:42:20Z }
 ---
 
@@ -63,10 +63,15 @@ verified: { by: human:high-soar, at: 2026-09-10T14:42:20Z }
 
 ```text
 data/
-├── members.yaml      # メンバ情報
-├── tasks.yaml        # タスク情報
-└── calendar.yaml     # チームカレンダー・稼働日情報
+├── members.yaml      # メンバ情報 (ルートキー: members:)
+├── tasks.yaml        # タスク情報 (ルートキー: tasks:)
+├── calendar.yaml     # チームカレンダー・稼働日情報 (ルートキー: calendar:)
+└── actuals.yaml      # 日々の作業実績・タスク進捗 (ルートキー: actuals: [M5推奨])
 ```
+
+> [!NOTE]
+> **原本 YAML スキーマのルートキー対称性**:
+> すべての原本ファイルは、ファイル種別を表すルートキー（`members:`, `tasks:`, `calendar:`, `actuals:`）をトップレベルに配置する対称的なスキーマを標準とします。`actuals.yaml` における旧トップレベル形式（`work_logs:`, `task_progress:`）は非推奨（Deprecation）となり、`actuals:` ルートキー形式が推奨されます（詳細は `specs/004-actuals-and-replanning.md` および `specs/006-schema-expressiveness-and-optimization.md` を参照）。
 
 ---
 

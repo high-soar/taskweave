@@ -98,7 +98,6 @@ def record_work_log(
 
     # 3. 既存 actuals.yaml の読み込みと構造判定
     actuals_path = directory / "actuals.yaml"
-    has_root_key = True
     actuals_dict: dict[str, Any] = {}
 
     if actuals_path.exists():
@@ -114,11 +113,17 @@ def record_work_log(
             return False, ["actuals: オブジェクトが必須です"]
 
         if not raw:
-            has_root_key = True
             actuals_dict = {}
+        elif "actuals" in raw:
+            if not isinstance(raw["actuals"], dict):
+                return False, ["actuals: オブジェクトが必須です"]
+            if "work_logs" in raw or "task_progress" in raw:
+                return False, [
+                    "actuals.yaml: 'actuals:' ルートキーとトップレベル直下の 'work_logs' または 'task_progress' が同時に存在します"
+                ]
+            actuals_dict = copy.deepcopy(raw["actuals"])
         else:
-            has_root_key = "actuals" in raw and isinstance(raw["actuals"], dict)
-            actuals_dict = copy.deepcopy(raw["actuals"] if has_root_key else raw)
+            actuals_dict = copy.deepcopy(raw)
 
     # 4. メモリ上での稼働ログ更新
     work_logs = actuals_dict.setdefault("work_logs", [])
@@ -228,8 +233,8 @@ def record_work_log(
             }
             task_progress.append(new_tp)
 
-    # 6. 事前スキーマ検証および論理整合性検証
-    candidate_data = {"actuals": actuals_dict} if has_root_key else actuals_dict
+    # 6. 事前スキーマ検証および論理整合性検証（常に actuals: ルートキー付きの正規化形式で書き出す）
+    candidate_data = {"actuals": actuals_dict}
     yaml_str = yaml.safe_dump(candidate_data, sort_keys=False, allow_unicode=True)
 
     act_res = validate_actuals(yaml_str)
