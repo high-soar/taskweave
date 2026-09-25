@@ -4,14 +4,14 @@ title: Taskweave Project Agent Guidelines
 description: Taskweave のエージェントと開発者が共有するプロジェクト運用指針
 tags: [ai-agents, development, project-rules]
 status: stable
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-24T16:15:00Z }
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T02:25:00Z }
 ---
 
 # Taskweave Project Agent Guidelines
 
 Taskweave is a schedule-planning tool for coding agents. It is intended to manage members, tasks, estimates, constraints, and actual work as text-based source files so that an agent can help propose and revise a team schedule.
 
-The repository has finalized its source-file schema (Milestone 1), completed the scheduling engine MVP in Python / OR-Tools (Milestone 2, Issues #12, #13, #14, #15, #16), and implemented actuals tracking and replanning workflows (Milestone 3, Issues #25, #26, #27, #28). Full agent CLI commands and reporting are planned for Milestone 4.
+The repository has finalized its source-file schema (Milestone 1), completed the scheduling engine MVP in Python / OR-Tools (Milestone 2, Issues #12, #13, #14, #15, #16), implemented actuals tracking and replanning workflows (Milestone 3, Issues #25, #26, #27, #28), and completed full agent CLI commands and reporting (Milestone 4, Issues #40, #41, #42, #43, #45). Schema expressiveness and optimization are planned for Milestone 5.
 
 ## 1. Environment & Architecture
 
