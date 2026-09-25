@@ -154,6 +154,17 @@ def format_plan_markdown(plan_data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _split_daily_hours(
+    daily_hours: dict[str, float] | None, cutoff: str | None
+) -> tuple[list[str], list[str]]:
+    """日別工数を cutoff 日付より前 (過去実績: d < cutoff) と以降 (未来予定: d >= cutoff) に分割する (FR-10)."""
+    if not daily_hours or not cutoff:
+        return [], []
+    past_days = [d for d, h in sorted(daily_hours.items()) if d < cutoff and h > 0]
+    future_days = [d for d, h in sorted(daily_hours.items()) if d >= cutoff and h > 0]
+    return past_days, future_days
+
+
 def format_replan_mermaid(replan_result: dict[str, Any]) -> str:
     """再計画結果を過去実績・残工数が可視化された Mermaid gantt 記法に整形する."""
     lines: list[str] = [
@@ -188,8 +199,7 @@ def format_replan_mermaid(replan_result: dict[str, Any]) -> str:
             from_m = handoff.get("from") or "unassigned"
             to_m = member
             cutoff = handoff.get("as_of") or as_of
-            past_days = [d for d, h in daily_hours.items() if d < cutoff and h > 0] if daily_hours and cutoff else []
-            future_days = [d for d, h in daily_hours.items() if d >= cutoff and h > 0] if daily_hours and cutoff else []
+            past_days, future_days = _split_daily_hours(daily_hours, cutoff)
 
             if past_days:
                 p_start = min(past_days)
@@ -214,8 +224,7 @@ def format_replan_mermaid(replan_result: dict[str, Any]) -> str:
                 line = f"    {t_id} [完了] : done, {t_id}, {s_date}, {e_date}"
                 by_member.setdefault(member, []).append((s_date, t_id, line))
             elif status == "in_progress":
-                past_days = [d for d, h in daily_hours.items() if d <= as_of and h > 0] if daily_hours and as_of else []
-                future_days = [d for d, h in daily_hours.items() if d > as_of and h > 0] if daily_hours and as_of else []
+                past_days, future_days = _split_daily_hours(daily_hours, as_of)
 
                 if past_days and future_days:
                     l1 = f"    {t_id} [実績] : done, {t_id}-actual, {min(past_days)}, {max(past_days)}"
@@ -344,27 +353,36 @@ def format_replan_markdown(replan_result: dict[str, Any]) -> str:
             from_m = handoff.get("from") or "unassigned"
             to_m = assignee
             cutoff = handoff.get("as_of") or as_of
-            past_days = [d for d, h in daily_hours.items() if d < cutoff and h > 0] if daily_hours and cutoff else []
-            future_days = [d for d, h in daily_hours.items() if d >= cutoff and h > 0] if daily_hours and cutoff else []
+            past_days, future_days = _split_daily_hours(daily_hours, cutoff)
 
-            p_start = min(past_days) if past_days else s_date
-            p_end = max(past_days) if past_days else s_date
-            p_days = len(past_days) if past_days else 1
+            has_past = bool(past_days or logged > 0)
+            has_future = bool(future_days or remaining > 0)
 
-            f_start = min(future_days) if future_days else e_date
-            f_end = max(future_days) if future_days else e_date
-            f_days = len(future_days) if future_days else max(1, w_days - p_days)
+            if has_past:
+                p_start = min(past_days) if past_days else s_date
+                p_end = max(past_days) if past_days else s_date
+                p_days = len(past_days) if past_days else 1
+                # 前任者の過去実績行
+                lines.append(
+                    f"| {t_id} [実績] | {from_m} | {status} | {p_start} | {p_end} | {p_days} | "
+                    f"{logged:.1f}h | 0.0h | - | - |"
+                )
 
-            # 前任者の過去実績行
-            lines.append(
-                f"| {t_id} [実績] | {from_m} | {status} | {p_start} | {p_end} | {p_days} | "
-                f"{logged:.1f}h | 0.0h | - | - |"
-            )
-            # 後任者の未来予定行
-            lines.append(
-                f"| {t_id} [残工数] | {to_m} | {status} | {f_start} | {f_end} | {f_days} | "
-                f"0.0h | {remaining:.1f}h | {deadline} | {delay_str} |"
-            )
+            if has_future:
+                p_days = len(past_days) if past_days else (1 if has_past else 0)
+                f_start = min(future_days) if future_days else (s_date if not has_past else e_date)
+                f_end = max(future_days) if future_days else e_date
+                f_days = len(future_days) if future_days else (w_days if not has_past else max(1, w_days - p_days))
+                # 後任者の未来予定行
+                lines.append(
+                    f"| {t_id} [残工数] | {to_m} | {status} | {f_start} | {f_end} | {f_days} | "
+                    f"0.0h | {remaining:.1f}h | {deadline} | {delay_str} |"
+                )
+            elif not has_past:
+                lines.append(
+                    f"| {t_id} | {to_m} | {status} | {s_date} | {e_date} | {w_days} | "
+                    f"{logged:.1f}h | {remaining:.1f}h | {deadline} | {delay_str} |"
+                )
         else:
             lines.append(
                 f"| {t_id} | {assignee} | {status} | {s_date} | {e_date} | {w_days} | "

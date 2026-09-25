@@ -92,10 +92,12 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:55:00Z }
 - **FR-18 (Infeasible 時のボトルネック診断 - Issue #52)**:
   - `assigned_to` のハード制約や該当メンバーのキャパシティ不足、納期制約違反等により解なし（`INFEASIBLE`）となった場合、ソルバーおよび CLI は明確なボトルネック診断情報を出力すること。
 - **FR-19 (`actuals.yaml` におけるタスク引き継ぎ指定 `task_progress[].handoff_to` - Issue #54)**:
-  - `actuals.yaml` の `task_progress` 配下の各タスク進捗定義に、任意の `handoff_to: <member_id>` フィールドを指定可能とする。
+  - `actuals.yaml` の `task_progress` 配下の各タスク進捗定義に、任意の `handoff_to: <member_id>` フィールドを指定可能とする。`null`（または未指定）は引き継ぎなし（通常タスク）として許容する。
   - 着手済みタスクに `handoff_to` が指定された場合、原本 `tasks.yaml` の `assigned_to` や実績記録作業者よりも優先して未来の担当者として適用されること。
+  - 完了済みタスク（`status: completed` または `remaining_hours: 0.0`）に対する `handoff_to` の指定は無効とし、バリデーションエラーとする。
+  - 引き継ぎタスクにおいては、前任者（最大1名）と引き継ぎ先後任者の双方が `actuals.work_logs` に実績を記録することを許容する（1タスク1担当者原則の例外緩和）。
 - **FR-20 (引き継ぎ先の存在性およびスキル充足バリデーション - Issue #54)**:
-  - `validator.py` において、`validate_actuals` は `handoff_to` が非空文字列であることを構文検証すること。
+  - `validator.py` において、`validate_actuals` は `handoff_to` が非空文字列（または `null`）であることを構文検証し、完了済みタスクへの指定を検出すること。
   - `validate_logical_integrity` および `validate_schedule_inputs` において、引き継ぎ先メンバー（Handoff Recipient）が `members.yaml` に定義されており、かつタスクの必須スキル（`required_skills`）をすべて満たしていることを論理検証すること。
 - **FR-21 (起算日 As-of Date による実績固定と残工数の引き継ぎ先割当 - Issue #54)**:
   - `engine.py` の再計画（`_solve_replan`）において、起算日（As-of Date）以前の実績工数・作業ログは前任者の実績として固定し、起算日以降の残工数（Remaining Hours）のみを引き継ぎ先メンバーのキャパシティに割り当てること。
@@ -161,19 +163,19 @@ actuals:
 
 #### フィールド詳細 (`actuals`)
 
-| フィールド名                              | 型             | 必須 | デフォルト | 説明・制約                                                                                                                                                                                                                  |
-| :---------------------------------------- | :------------- | :--- | :--------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `actuals`                                 | object         | 推奨 | -          | 実績データのルートオブジェクト。                                                                                                                                                                                            |
-| `actuals.work_logs`                       | list of object | 任意 | `[]`       | 作業実績ログのリスト。                                                                                                                                                                                                      |
-| `actuals.work_logs[].date`                | string (date)  | 必須 | -          | 作業実施日。実在する `YYYY-MM-DD` 形式の日付文字列。                                                                                                                                                                        |
-| `actuals.work_logs[].member_id`           | string         | 必須 | -          | 作業を担当したメンバの ID。`members.yaml` に定義が存在すること。                                                                                                                                                            |
-| `actuals.work_logs[].task_id`             | string         | 必須 | -          | 作業対象のタスク ID。`tasks.yaml` に定義が存在すること。                                                                                                                                                                    |
-| `actuals.work_logs[].hours`               | number         | 必須 | -          | 投入した実績工数（時間）。`0.1` 以上の `0.1` 刻みの正の有限数値。                                                                                                                                                           |
-| `actuals.task_progress`                   | list of object | 任意 | `[]`       | タスク進捗ステータスおよび明示的残工数のリスト。                                                                                                                                                                            |
-| `actuals.task_progress[].task_id`         | string         | 必須 | -          | 対象タスク ID。`tasks.yaml` に定義が存在すること。同一リスト内で重複不可。                                                                                                                                                  |
-| `actuals.task_progress[].remaining_hours` | number         | 必須 | -          | 見積もり直した残工数（時間）。`0.0` 以上の `0.1` 刻みの有限数値。`status: completed` 時は `0.0`。                                                                                                                           |
-| `actuals.task_progress[].status`          | string         | 必須 | -          | タスク状態。`not_started`, `in_progress`, `completed` のいずれか。                                                                                                                                                          |
-| `actuals.task_progress[].handoff_to`      | string         | 任意 | `null`     | 引き継ぎ先メンバー ID。着手済みタスクの未来担当者を明示的に指定し、原本 `tasks.yaml` の `assigned_to` よりも優先される。`members.yaml` に定義され、タスクの必須スキル（`required_skills`）をすべて満たすこと（Issue #54）。 |
+| フィールド名                              | 型             | 必須 | デフォルト | 説明・制約                                                                                                                                                                                                                                                                                                                              |
+| :---------------------------------------- | :------------- | :--- | :--------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `actuals`                                 | object         | 推奨 | -          | 実績データのルートオブジェクト。                                                                                                                                                                                                                                                                                                        |
+| `actuals.work_logs`                       | list of object | 任意 | `[]`       | 作業実績ログのリスト。                                                                                                                                                                                                                                                                                                                  |
+| `actuals.work_logs[].date`                | string (date)  | 必須 | -          | 作業実施日。実在する `YYYY-MM-DD` 形式の日付文字列。                                                                                                                                                                                                                                                                                    |
+| `actuals.work_logs[].member_id`           | string         | 必須 | -          | 作業を担当したメンバの ID。`members.yaml` に定義が存在すること。                                                                                                                                                                                                                                                                        |
+| `actuals.work_logs[].task_id`             | string         | 必須 | -          | 作業対象のタスク ID。`tasks.yaml` に定義が存在すること。                                                                                                                                                                                                                                                                                |
+| `actuals.work_logs[].hours`               | number         | 必須 | -          | 投入した実績工数（時間）。`0.1` 以上の `0.1` 刻みの正の有限数値。                                                                                                                                                                                                                                                                       |
+| `actuals.task_progress`                   | list of object | 任意 | `[]`       | タスク進捗ステータスおよび明示的残工数のリスト。                                                                                                                                                                                                                                                                                        |
+| `actuals.task_progress[].task_id`         | string         | 必須 | -          | 対象タスク ID。`tasks.yaml` に定義が存在すること。同一リスト内で重複不可。                                                                                                                                                                                                                                                              |
+| `actuals.task_progress[].remaining_hours` | number         | 必須 | -          | 見積もり直した残工数（時間）。`0.0` 以上の `0.1` 刻みの有限数値。`status: completed` 時は `0.0`。                                                                                                                                                                                                                                       |
+| `actuals.task_progress[].status`          | string         | 必須 | -          | タスク状態。`not_started`, `in_progress`, `completed` のいずれか。                                                                                                                                                                                                                                                                      |
+| `actuals.task_progress[].handoff_to`      | string \| null | 任意 | `null`     | 引き継ぎ先メンバー ID。未完了タスク（残工数 > 0）の未来担当者を明示的に指定し、原本 `tasks.yaml` の `assigned_to` よりも優先される。`null` 許容。完了済みタスク（`status: completed` または `remaining_hours: 0.0`）への指定は不可。`members.yaml` に定義され、タスクの必須スキル（`required_skills`）をすべて満たすこと（Issue #54）。 |
 
 ---
 
@@ -457,13 +459,14 @@ actuals:
 - **操作 (When)**: `taskweave replan --as-of <date>` または `_solve_replan` を実行する。
 - **期待結果 (Then)**: 原本 `tasks.yaml` の `assigned_to: alice` よりも `handoff_to: bob` が優先され、起算日以降の残工数が Bob に割り当てられること。
 
-### シナリオ 22: 引き継ぎ先の存在性およびスキル検証 (Issue #54 AC-2)
+### シナリオ 22: 引き継ぎ先の存在性、スキル検証および完了タスク制約 (Issue #54 AC-2)
 
 - **前提 (Given)**:
   - ケース A: `actuals.yaml` の `task_progress` の `handoff_to` に存在しないメンバー ID が指定されている。
   - ケース B: `actuals.yaml` の `task_progress` の `handoff_to` に、タスクの `required_skills` を持たないメンバーが指定されている。
+  - ケース C: 完了済みタスク（`status: completed` または `remaining_hours: 0.0`）に `handoff_to` が指定されている。
 - **操作 (When)**: `validate_project_data` または `validate_schedule_inputs` を実行する。
-- **期待結果 (Then)**: `valid == False`（または `ValueError`）となり、未定義メンバー参照または必須スキル不適合の明確なエラーが出力されること。
+- **期待結果 (Then)**: `valid == False`（または `ValueError`）となり、未定義メンバー参照、必須スキル不適合、または完了済みタスクへの指定不可の明確なエラーが出力されること。
 
 ### シナリオ 23: 起算日前後の実績固定と残工数割当 (Issue #54 AC-3)
 

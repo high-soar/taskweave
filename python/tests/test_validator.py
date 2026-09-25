@@ -1681,3 +1681,112 @@ actuals:
         with pytest.raises(ValueError, match="必須スキル"):
             validate_schedule_inputs(members, tasks, calendar, actuals_data=actuals)
 
+    def test_actuals_task_progress_explicit_null_handoff_to(self):
+        """Issue #54 [MUST] 2:
+        actuals.task_progress[].handoff_to に null (または ~) が明示指定された場合、エラーにならず許容されること.
+        """
+        yaml_content = """
+actuals:
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 8.0
+      status: in_progress
+      handoff_to: null
+    - task_id: task-db
+      remaining_hours: 4.0
+      status: in_progress
+      handoff_to: ~
+"""
+        res = validate_actuals(yaml_content)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        tp0 = res.data["task_progress"][0]
+        assert "handoff_to" not in tp0
+        tp1 = res.data["task_progress"][1]
+        assert "handoff_to" not in tp1
+
+    def test_actuals_task_progress_completed_task_with_handoff_to_fails(self):
+        """Issue #54 [IMO] 6:
+        完了済みタスク（status: completed または remaining_hours: 0.0）に対して handoff_to が指定された場合エラーになること.
+        """
+        yaml_content = """
+actuals:
+  task_progress:
+    - task_id: task-api
+      remaining_hours: 0.0
+      status: completed
+      handoff_to: bob
+"""
+        res = validate_actuals(yaml_content)
+        assert res.valid is False
+        assert any("完了済みタスク" in e and "handoff_to" in e for e in res.errors)
+
+    def test_logical_integrity_handoff_both_predecessor_and_successor_logs_allowed(self):
+        """Issue #54 [MUST] 1:
+        引き継ぎタスク (handoff_to が指定されたタスク) では、前任者と後任者の作業ログが両方存在することが許容されること.
+        """
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["backend"]},
+            {"id": "bob", "name": "Bob", "skills": ["backend"]},
+        ]
+        tasks = [{"id": "t1", "title": "T1", "estimate_hours": 16.0, "required_skills": ["backend"]}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-08", "member_id": "alice", "task_id": "t1", "hours": 8.0},
+                {"date": "2026-09-09", "member_id": "bob", "task_id": "t1", "hours": 4.0},
+            ],
+            "task_progress": [
+                {"task_id": "t1", "remaining_hours": 4.0, "status": "in_progress", "handoff_to": "bob"}
+            ],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is True
+        assert len(res.errors) == 0
+
+    def test_logical_integrity_handoff_third_member_logs_fails(self):
+        """Issue #54 [MUST] 1:
+        引き継ぎタスクであっても、前任者・後任者以外の第3メンバーの実績が記録されている場合はエラーになること.
+        """
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["backend"]},
+            {"id": "bob", "name": "Bob", "skills": ["backend"]},
+            {"id": "charlie", "name": "Charlie", "skills": ["backend"]},
+        ]
+        tasks = [{"id": "t1", "title": "T1", "estimate_hours": 16.0, "required_skills": ["backend"]}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        actuals = {
+            "work_logs": [
+                {"date": "2026-09-08", "member_id": "alice", "task_id": "t1", "hours": 4.0},
+                {"date": "2026-09-09", "member_id": "bob", "task_id": "t1", "hours": 4.0},
+                {"date": "2026-09-10", "member_id": "charlie", "task_id": "t1", "hours": 4.0},
+            ],
+            "task_progress": [
+                {"task_id": "t1", "remaining_hours": 4.0, "status": "in_progress", "handoff_to": "bob"}
+            ],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("1タスク1担当者原則" in e or "複数の担当メンバ" in e for e in res.errors)
+
+    def test_logical_integrity_handoff_completed_task_fails(self):
+        """Issue #54 [IMO] 6:
+        論理整合性検証において完了済みタスクに handoff_to が指定された場合エラーになること.
+        """
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["backend"]},
+            {"id": "bob", "name": "Bob", "skills": ["backend"]},
+        ]
+        tasks = [{"id": "t1", "title": "T1", "estimate_hours": 8.0, "required_skills": ["backend"]}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        actuals = {
+            "work_logs": [{"date": "2026-09-08", "member_id": "alice", "task_id": "t1", "hours": 8.0}],
+            "task_progress": [
+                {"task_id": "t1", "remaining_hours": 0.0, "status": "completed", "handoff_to": "bob"}
+            ],
+        }
+        res = validate_logical_integrity(members, tasks, calendar, actuals=actuals)
+        assert res.valid is False
+        assert any("完了済みタスク" in e and "handoff_to" in e for e in res.errors)
+
+

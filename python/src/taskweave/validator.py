@@ -474,10 +474,14 @@ def validate_actuals(yaml_string: str) -> ValidationResult:
                     )
 
                 handoff_to = tp.get("handoff_to")
-                if "handoff_to" in tp:
+                if "handoff_to" in tp and tp["handoff_to"] is not None:
                     if not isinstance(handoff_to, str) or not handoff_to.strip():
                         errors.append(
                             f"{prefix}.handoff_to: メンバーID（空でない文字列）である必要があります (指定値: {handoff_to})"
+                        )
+                    elif status == "completed" or (is_valid_rem and float(rem) == 0.0):
+                        errors.append(
+                            f'{prefix}.handoff_to: 完了済みタスク（status: "completed" または remaining_hours: 0.0）に対して handoff_to を指定することはできません (指定値: {handoff_to})'
                         )
 
                 tp_item: dict[str, Any] = {
@@ -485,7 +489,7 @@ def validate_actuals(yaml_string: str) -> ValidationResult:
                     "remaining_hours": float(rem) if is_valid_rem else rem,
                     "status": status,
                 }
-                if "handoff_to" in tp and isinstance(handoff_to, str) and handoff_to.strip():
+                if "handoff_to" in tp and tp["handoff_to"] is not None and isinstance(handoff_to, str) and handoff_to.strip():
                     tp_item["handoff_to"] = handoff_to.strip()
 
                 task_progress.append(tp_item)
@@ -845,9 +849,21 @@ def validate_logical_integrity(
                     f"解決のヒント: 実績工数の入力値を確認してください"
                 )
 
-        # 1タスク1担当者原則チェック
+        handoff_map: dict[str, str] = {}
+        if isinstance(task_progress, list):
+            for tp in task_progress:
+                if isinstance(tp, dict):
+                    t_id_val = tp.get("task_id")
+                    h_to = tp.get("handoff_to")
+                    if t_id_val and isinstance(h_to, str) and h_to.strip():
+                        handoff_map[t_id_val] = h_to.strip()
+
+        # 1タスク1担当者原則チェック (引き継ぎタスクは前任者と後任者の2名を許容)
         for t_id, m_set in sorted(task_members.items()):
             if len(m_set) > 1:
+                handoff_recipient = handoff_map.get(t_id)
+                if handoff_recipient and len(m_set) == 2 and handoff_recipient in m_set:
+                    continue
                 m_list = ", ".join(sorted(m_set))
                 first_member = task_member_entries[t_id][0][0]
                 conflict_i = next(idx for mem, idx in task_member_entries[t_id] if mem != first_member)
@@ -870,7 +886,14 @@ def validate_logical_integrity(
 
                 handoff_to = tp.get("handoff_to")
                 if handoff_to:
-                    if handoff_to not in member_ids:
+                    rem_val = tp.get("remaining_hours")
+                    is_rem_zero = isinstance(rem_val, (int, float)) and float(rem_val) == 0.0
+                    if tp.get("status") == "completed" or is_rem_zero:
+                        errors.append(
+                            f'actuals.task_progress[{i}].handoff_to: 完了済みタスク "{t_id}"（status: "completed" または remaining_hours: 0.0）に対して handoff_to を指定することはできません。'
+                            f"解決のヒント: 完了したタスクの handoff_to を削除してください"
+                        )
+                    elif handoff_to not in member_ids:
                         errors.append(
                             f'actuals.task_progress[{i}].handoff_to: 未定義のメンバー "{handoff_to}" を参照しています。'
                             f"解決のヒント: members.yaml にメンバーを定義してください"
@@ -1188,6 +1211,10 @@ def validate_schedule_inputs(
                 if isinstance(tp, dict) and "handoff_to" in tp and tp["handoff_to"]:
                     h_to = tp["handoff_to"]
                     t_id = tp.get("task_id")
+                    rem_val = tp.get("remaining_hours")
+                    is_rem_zero = isinstance(rem_val, (int, float)) and float(rem_val) == 0.0
+                    if tp.get("status") == "completed" or is_rem_zero:
+                        raise ValueError(f"完了済みタスク '{t_id}' に対して handoff_to を指定することはできません。")
                     if h_to not in members:
                         raise ValueError(f"引き継ぎ先メンバー '{h_to}' (handoff_to) が members に未定義です。")
                     if t_id and t_id in tasks:

@@ -187,7 +187,7 @@ def record_work_log(
             if status is not None:
                 target_tp["status"] = status
             if handoff_to is not None:
-                target_tp["handoff_to"] = handoff_to
+                target_tp["handoff_to"] = handoff_to.strip() if isinstance(handoff_to, str) else handoff_to
             if target_tp.get("status") == "completed" and remaining_hours is None:
                 target_tp["remaining_hours"] = 0.0
             elif target_tp.get("remaining_hours") == 0.0 and status is None:
@@ -239,7 +239,7 @@ def record_work_log(
                 "status": calc_status,
             }
             if handoff_to is not None:
-                new_tp["handoff_to"] = handoff_to
+                new_tp["handoff_to"] = handoff_to.strip() if isinstance(handoff_to, str) else handoff_to
             task_progress.append(new_tp)
 
     # 6. 事前スキーマ検証および論理整合性検証（常に actuals: ルートキー付きの正規化形式で書き出す）

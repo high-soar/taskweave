@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from taskweave.reporting import (
+    _split_daily_hours,
     format_plan_markdown,
     format_plan_mermaid,
     format_replan_markdown,
@@ -130,17 +131,18 @@ def sample_replan_result():
                 },
                 "task-api": {
                     "assigned_to": "alice",
-                    "start_date": "2026-09-09",
+                    "start_date": "2026-09-08",
                     "end_date": "2026-09-11",
-                    "workdays_count": 3,
+                    "workdays_count": 4,
                     "estimate_hours": 16.0,
                     "total_logged_hours": 4.0,
                     "remaining_hours": 16.0,
                     "status": "in_progress",
                     "daily_hours": {
-                        "2026-09-09": 4.0,
-                        "2026-09-10": 8.0,
-                        "2026-09-11": 8.0,
+                        "2026-09-08": 4.0,
+                        "2026-09-09": 8.0,
+                        "2026-09-10": 4.0,
+                        "2026-09-11": 4.0,
                     },
                     "deadline": "2026-09-10",
                     "delay_days": 1,
@@ -451,6 +453,66 @@ class TestReportingReplan:
         doc = format_replan_markdown(replan_result)
         assert "| task-api [実績] | alice |" in doc
         assert "| task-api [残工数] | bob |" in doc
+
+    def test_format_replan_markdown_handoff_unstarted_task_no_actuals_row(self):
+        """Issue #54 [SHOULD] 3:
+        未着手（実績ゼロ）の引き継ぎタスクで架空の [実績] 行が出力されないこと.
+        """
+        replan_result = {
+            "baseline": {"makespan_workdays": 1, "tasks": {}},
+            "replanned": {
+                "as_of_date": "2026-09-09",
+                "makespan_workdays": 1,
+                "tasks": {
+                    "task-api": {
+                        "assigned_to": "bob",
+                        "status": "not_started",
+                        "start_date": "2026-09-09",
+                        "end_date": "2026-09-09",
+                        "workdays_count": 1,
+                        "estimate_hours": 8.0,
+                        "total_logged_hours": 0.0,
+                        "remaining_hours": 8.0,
+                        "daily_hours": {
+                            "2026-09-09": 8.0,
+                        },
+                        "handoff": {
+                            "from": "alice",
+                            "as_of": "2026-09-09",
+                        },
+                    }
+                },
+            },
+            "diff": {
+                "makespan": {"baseline_workdays": 1, "replanned_workdays": 1, "slip_workdays": 0},
+                "tasks": {},
+                "summary": {"delayed_task_ids": []},
+                "recommendations": [],
+            },
+        }
+        doc = format_replan_markdown(replan_result)
+        assert "[実績]" not in doc
+        assert "| task-api [残工数] | bob |" in doc
+
+    def test_split_daily_hours_boundary(self):
+        """Issue #54 [SHOULD] 4:
+        _split_daily_hours が specs/004 FR-10 に従い、
+        d < cutoff を過去実績、d >= cutoff を未来予定に正確に分割すること.
+        """
+        daily = {
+            "2026-09-08": 8.0,
+            "2026-09-09": 4.0,
+            "2026-09-10": 8.0,
+        }
+        past, future = _split_daily_hours(daily, "2026-09-09")
+        assert past == ["2026-09-08"]
+        assert future == ["2026-09-09", "2026-09-10"]
+
+        # 空データや None のケース
+        assert _split_daily_hours({}, "2026-09-09") == ([], [])
+        assert _split_daily_hours(daily, None) == ([], [])
+        assert _split_daily_hours(None, "2026-09-09") == ([], [])
+
 
 
 
