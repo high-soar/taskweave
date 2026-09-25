@@ -1707,6 +1707,235 @@ def test_absences_invalid_or_empty_date_ignored():
     assert ("alice", datetime.date(2026, 9, 2)) in parsed
 
 
+# ---------------------------------------------------------------------------
+# Issue #52: タスク担当者指定 (assigned_to) & 推奨担当者 (preferred_member) テスト
+# ---------------------------------------------------------------------------
+
+
+def test_solve_schedule_with_assigned_to():
+    """AC-3, AC-7: assigned_to が指定されたタスクは該当メンバーに確実に固定割当されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "bob"},
+        {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "alice"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    start_date = datetime.date(2026, 9, 1)
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+    assert result["tasks"]["t1"]["assigned_to"] == "bob"
+    assert result["tasks"]["t2"]["assigned_to"] == "alice"
+
+
+def test_solve_schedule_assigned_to_infeasible_diagnostics():
+    """AC-3: assigned_to により該当メンバーに割り当てられず解が存在しない場合、INFEASIBLE となりボトルネック診断が出力されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    # Alice に 40h のタスクが assigned_to で割り当てられているが、horizon_days=2 (最大16h) かつ Bob は手伝えない
+    tasks = [
+        {"id": "t1", "title": "Large Task", "estimate_hours": 40.0, "required_skills": ["backend"], "assigned_to": "alice"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    start_date = datetime.date(2026, 9, 1)
+
+    result = solve_schedule(members, tasks, calendar, start_date, horizon_days=2)
+    assert result["status"] == "INFEASIBLE"
+    assert "infeasible_reasons" in result["diagnostics"]
+    assert len(result["diagnostics"]["infeasible_reasons"]) > 0
+    assert any("alice" in r for r in result["diagnostics"]["infeasible_reasons"])
+
+
+def test_solve_schedule_with_preferred_member():
+    """AC-4, AC-7: 工期が変わらない場合、preferred_member で指定されたメンバーに優先的に割り当てられること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "preferred_member": "bob"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    start_date = datetime.date(2026, 9, 1)
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+    assert result["tasks"]["t1"]["assigned_to"] == "bob"
+
+
+def test_solve_schedule_preferred_member_tradeoff_makespan():
+    """AC-4: preferred_member に割り当てると Makespan が延びる場合、工期最短化を優先して他メンバーへ割り当てられること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    # t1=4h (Alice), t2=8h (Bob), t3=4h (preferred_member: Bob)
+    # もし t3 を Bob に割り当てると、Bob は t2 + t3 で 12h 必要になり Makespan=2 となる。
+    # しかし Alice に割り当てれば、Alice (t1+t3=8h) と Bob (t2=8h) が同日並行で完了し Makespan=1 となる。
+    # ペナルティ 100 < Makespan 1000 のため、工期最短化 (Makespan=1) を優先して Alice に割り当てられるべき。
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 4.0, "required_skills": ["backend"], "assigned_to": "alice"},
+        {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "bob"},
+        {"id": "t3", "title": "Task 3", "estimate_hours": 4.0, "required_skills": ["backend"], "preferred_member": "bob"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    start_date = datetime.date(2026, 9, 1)
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "OPTIMAL"
+    # Makespan が 1日になるよう、t3 は Alice に割り当てられること
+    assert result["makespan_workdays"] == 1
+    assert result["tasks"]["t3"]["assigned_to"] == "alice"
+
+
+def test_replan_actuals_overrides_assigned_to():
+    """AC-6, AC-7: tasks.yaml で assigned_to: alice と指定されていても、actuals.yaml で bob が着手している場合は bob が優先されること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "alice"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    actuals = {
+        "work_logs": [
+            {"date": "2026-09-01", "member_id": "bob", "task_id": "t1", "hours": 4.0},
+        ],
+        "task_progress": [
+            {"task_id": "t1", "remaining_hours": 4.0, "status": "in_progress"},
+        ],
+    }
+    start_date = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 2)
+
+    result = solve_schedule(
+        members_data=members,
+        tasks_data=tasks,
+        calendar_data=calendar,
+        project_start_date=start_date,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+    assert result["status"] == "OPTIMAL"
+    # actuals の作業者 Bob が優先されていること
+    assert result["tasks"]["t1"]["assigned_to"] == "bob"
+
+
+def test_replan_unstarted_task_respects_assigned_to():
+    """AC-6, AC-7: 再計画において未着手タスクは tasks.yaml の assigned_to に従うこと."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "bob"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    actuals = {
+        "work_logs": [],
+        "task_progress": [],
+    }
+    start_date = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 2)
+
+    result = solve_schedule(
+        members_data=members,
+        tasks_data=tasks,
+        calendar_data=calendar,
+        project_start_date=start_date,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+    assert result["status"] == "OPTIMAL"
+    assert result["tasks"]["t1"]["assigned_to"] == "bob"
+
+
+def test_solve_schedule_infeasible_no_false_positive():
+    """[MUST] 1: 循環依存など割当以外の理由で Infeasible になる場合、assigned_to を持つタスクが冤罪（False Positive）されないこと."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "T1", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "alice", "depends_on": ["t2"]},
+        {"id": "t2", "title": "T2", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "alice", "depends_on": ["t1"]},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    start_date = datetime.date(2026, 9, 1)
+
+    result = solve_schedule(members, tasks, calendar, start_date)
+    assert result["status"] == "INFEASIBLE"
+    reasons = result["diagnostics"]["infeasible_reasons"]
+    assert len(reasons) == 1
+    # キャパシティ超過の特定理由は出ず、包括的なフォールバック理由のみとなること
+    assert "キャパシティ" not in reasons[0] or "超過しています" not in reasons[0]
+    assert "制約充足解が存在しません" in reasons[0]
+
+
+def test_replan_with_preferred_member():
+    """[SHOULD] 6: 再計画時にも未着手タスクの preferred_member ソフト制約が機能すること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["backend"], "preferred_member": "bob"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    actuals = {"work_logs": [], "task_progress": []}
+    start_date = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 2)
+
+    result = solve_schedule(
+        members_data=members,
+        tasks_data=tasks,
+        calendar_data=calendar,
+        project_start_date=start_date,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+    assert result["status"] == "OPTIMAL"
+    assert result["tasks"]["t1"]["assigned_to"] == "bob"
+
+
+def test_replan_preferred_member_tradeoff_makespan():
+    """[SHOULD] 6: 再計画時にも preferred_member による工期延伸を回避して工期最短化を優先すること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["backend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 4.0, "required_skills": ["backend"], "assigned_to": "alice"},
+        {"id": "t2", "title": "Task 2", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "bob"},
+        {"id": "t3", "title": "Task 3", "estimate_hours": 4.0, "required_skills": ["backend"], "preferred_member": "bob"},
+    ]
+    calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+    actuals = {"work_logs": [], "task_progress": []}
+    start_date = datetime.date(2026, 9, 1)
+    as_of_date = datetime.date(2026, 9, 2)
+
+    result = solve_schedule(
+        members_data=members,
+        tasks_data=tasks,
+        calendar_data=calendar,
+        project_start_date=start_date,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+    assert result["status"] == "OPTIMAL"
+    assert result["tasks"]["t3"]["assigned_to"] == "alice"
+
+
+# ---------------------------------------------------------------------------
+# Issue #51: メンバー個別稼働曜日 (member workdays) テスト
+# ---------------------------------------------------------------------------
+
+
 def test_member_workdays_capacity_zero_and_task_avoidance():
     """AC-4: メンバーの workdays に含まれない曜日はキャパシティが 0 となり、タスクが割り当てられないこと."""
     members = [

@@ -1217,6 +1217,207 @@ work_logs:
         assert res.warnings == []
 
 
+class TestTaskAssignmentValidation:
+    """Issue #52: タスクの assigned_to および preferred_member のバリデーションテスト."""
+
+    def test_tasks_yaml_with_assigned_to_success(self):
+        """AC-1: assigned_to が正常にパースされること."""
+        yaml_content = """
+tasks:
+  - id: "t1"
+    title: "Task 1"
+    estimate_hours: 8.0
+    assigned_to: "alice"
+"""
+        res = validate_tasks(yaml_content)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        assert len(res.data) == 1
+        assert res.data[0]["assigned_to"] == "alice"
+        assert res.data[0]["preferred_member"] is None
+
+    def test_tasks_yaml_with_preferred_member_success(self):
+        """AC-1: preferred_member が正常にパースされること."""
+        yaml_content = """
+tasks:
+  - id: "t1"
+    title: "Task 1"
+    estimate_hours: 8.0
+    preferred_member: "bob"
+"""
+        res = validate_tasks(yaml_content)
+        assert res.valid is True
+        assert len(res.errors) == 0
+        assert len(res.data) == 1
+        assert res.data[0]["assigned_to"] is None
+        assert res.data[0]["preferred_member"] == "bob"
+
+    def test_tasks_yaml_with_both_assigned_to_and_preferred_member_fails(self):
+        """AC-5: assigned_to と preferred_member の双方が同一タスクに指定された場合、バリデーションエラーとなること."""
+        yaml_content = """
+tasks:
+  - id: "t1"
+    title: "Task 1"
+    estimate_hours: 8.0
+    assigned_to: "alice"
+    preferred_member: "bob"
+"""
+        res = validate_tasks(yaml_content)
+        assert res.valid is False
+        assert any("assigned_to" in e and "preferred_member" in e for e in res.errors)
+
+    def test_tasks_yaml_invalid_assigned_to_type(self):
+        """assigned_to が文字列でない場合はエラーとなること."""
+        yaml_content = """
+tasks:
+  - id: "t1"
+    title: "Task 1"
+    estimate_hours: 8.0
+    assigned_to: 123
+"""
+        res = validate_tasks(yaml_content)
+        assert res.valid is False
+        assert any("tasks[0].assigned_to" in e for e in res.errors)
+
+    def test_tasks_yaml_invalid_preferred_member_type(self):
+        """preferred_member が文字列でない場合はエラーとなること."""
+        yaml_content = """
+tasks:
+  - id: "t1"
+    title: "Task 1"
+    estimate_hours: 8.0
+    preferred_member: 456
+"""
+        res = validate_tasks(yaml_content)
+        assert res.valid is False
+        assert any("tasks[0].preferred_member" in e for e in res.errors)
+
+    def test_logical_integrity_undefined_assigned_to_member(self):
+        """AC-2: members.yaml に存在しないメンバーIDを assigned_to に指定した場合のエラー検知."""
+        members = [{"id": "alice", "name": "Alice", "skills": ["backend"]}]
+        tasks = [
+            {
+                "id": "t1",
+                "title": "Task 1",
+                "estimate_hours": 8.0,
+                "required_skills": ["backend"],
+                "assigned_to": "charlie",
+            }
+        ]
+        res = validate_logical_integrity(members, tasks)
+        assert res.valid is False
+        assert any("tasks[0].assigned_to" in e and "charlie" in e for e in res.errors)
+
+    def test_logical_integrity_undefined_preferred_member(self):
+        """AC-2: members.yaml に存在しないメンバーIDを preferred_member に指定した場合のエラー検知."""
+        members = [{"id": "alice", "name": "Alice", "skills": ["backend"]}]
+        tasks = [
+            {
+                "id": "t1",
+                "title": "Task 1",
+                "estimate_hours": 8.0,
+                "required_skills": ["backend"],
+                "preferred_member": "charlie",
+            }
+        ]
+        res = validate_logical_integrity(members, tasks)
+        assert res.valid is False
+        assert any("tasks[0].preferred_member" in e and "charlie" in e for e in res.errors)
+
+    def test_logical_integrity_skill_mismatch_assigned_to(self):
+        """AC-2: assigned_to に指定されたメンバーがタスクの必須スキルを持たない場合のエラー検知."""
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["frontend"]},
+            {"id": "bob", "name": "Bob", "skills": ["backend"]},
+        ]
+        tasks = [
+            {
+                "id": "t1",
+                "title": "Task 1",
+                "estimate_hours": 8.0,
+                "required_skills": ["backend"],
+                "assigned_to": "alice",  # alice does not have 'backend'
+            }
+        ]
+        res = validate_logical_integrity(members, tasks)
+        assert res.valid is False
+        assert any("tasks[0].assigned_to" in e and "alice" in e and "backend" in e for e in res.errors)
+
+    def test_logical_integrity_skill_mismatch_preferred_member(self):
+        """AC-2: preferred_member に指定されたメンバーがタスクの必須スキルを持たない場合のエラー検知."""
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["frontend"]},
+            {"id": "bob", "name": "Bob", "skills": ["backend"]},
+        ]
+        tasks = [
+            {
+                "id": "t1",
+                "title": "Task 1",
+                "estimate_hours": 8.0,
+                "required_skills": ["backend"],
+                "preferred_member": "alice",  # alice does not have 'backend'
+            }
+        ]
+        res = validate_logical_integrity(members, tasks)
+        assert res.valid is False
+        assert any("tasks[0].preferred_member" in e and "alice" in e and "backend" in e for e in res.errors)
+
+
+class TestValidateScheduleInputsAssignment:
+    """[SHOULD] 4: validate_schedule_inputs での assigned_to / preferred_member 検証テスト."""
+
+    def test_both_assigned_to_and_preferred_member_raises_value_error(self):
+        members = [{"id": "alice", "name": "Alice", "skills": ["backend"]}]
+        tasks = [
+            {"id": "t1", "estimate_hours": 8.0, "assigned_to": "alice", "preferred_member": "alice"}
+        ]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+        with pytest.raises(ValueError, match="assigned_to と preferred_member の両方が指定されています"):
+            validate_schedule_inputs(members, tasks, calendar)
+
+    def test_undefined_assigned_to_raises_value_error(self):
+        members = [{"id": "alice", "name": "Alice", "skills": ["backend"]}]
+        tasks = [
+            {"id": "t1", "estimate_hours": 8.0, "assigned_to": "charlie"}
+        ]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+        with pytest.raises(ValueError, match="担当者 'charlie' .* が members に定義されていません"):
+            validate_schedule_inputs(members, tasks, calendar)
+
+    def test_skill_mismatch_assigned_to_raises_value_error(self):
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["frontend"]},
+            {"id": "bob", "name": "Bob", "skills": ["backend"]},
+        ]
+        tasks = [
+            {"id": "t1", "estimate_hours": 8.0, "required_skills": ["backend"], "assigned_to": "alice"}
+        ]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+        with pytest.raises(ValueError, match="担当者 'alice' .* は必須スキル .* をすべて保有していません"):
+            validate_schedule_inputs(members, tasks, calendar)
+
+    def test_undefined_preferred_member_raises_value_error(self):
+        members = [{"id": "alice", "name": "Alice", "skills": ["backend"]}]
+        tasks = [
+            {"id": "t1", "estimate_hours": 8.0, "preferred_member": "charlie"}
+        ]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+        with pytest.raises(ValueError, match="推奨担当者 'charlie' .* が members に定義されていません"):
+            validate_schedule_inputs(members, tasks, calendar)
+
+    def test_skill_mismatch_preferred_member_raises_value_error(self):
+        members = [
+            {"id": "alice", "name": "Alice", "skills": ["frontend"]},
+            {"id": "bob", "name": "Bob", "skills": ["backend"]},
+        ]
+        tasks = [
+            {"id": "t1", "estimate_hours": 8.0, "required_skills": ["backend"], "preferred_member": "alice"}
+        ]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"], "holidays": []}
+        with pytest.raises(ValueError, match="推奨担当者 'alice' .* は必須スキル .* をすべて保有していません"):
+            validate_schedule_inputs(members, tasks, calendar)
+
+
 class TestMemberWorkdaysValidation:
     """Issue #51: members.yaml の workdays フィールド構文・論理整合性検証テスト."""
 

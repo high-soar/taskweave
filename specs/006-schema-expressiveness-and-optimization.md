@@ -4,7 +4,7 @@ title: スキーマ表現力 & 最適化強化仕様
 description: 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 tags: [schema, symmetry, deprecation, actuals, optimization, milestone-5]
 status: accepted
-issues: [50, 51]
+issues: [50, 51, 52]
 generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:15:00Z }
 ---
 
@@ -23,10 +23,10 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:15:00Z }
     - **As a**: プロジェクト管理者および混成チームのリード
     - **I want**: 業務委託・時短勤務・副業メンバーなど特定曜日のみ稼働するメンバーの個別稼働曜日（例: `workdays: ["mon", "wed", "fri"]`）を `members.yaml` に定義し、スケジュール計算に反映させたい
     - **So that**: カレンダー原本（`calendar.yaml` の `absences`）に毎週の非稼働日を個別登録する手間をなくし、混成チームのキャパシティを簡潔かつ正確に管理できるようにするため
-  - **ストーリー 3 (Issue #52: 担当者の明示指定・推奨 - 今後予定)**:
-    - **As a**: プロジェクト管理者および計画立案者
-    - **I want**: `tasks.yaml` においてタスクの担当者を事前指定（`assigned_to`）または推奨（`preferred_member`）したい
-    - **So that**: 特定メンバへの名指し割り当てと自動最適化を共存させるため
+  - **ストーリー 3 (Issue #52: 担当者の明示指定・推奨担当者サポート)**:
+    - **As a**: プロジェクト管理者およびコーディングエージェント
+    - **I want**: `tasks.yaml` においてタスクの担当者を「完全固定（`assigned_to`）」または「優先・推奨（`preferred_member`）」として指定できるようにしたい
+    - **So that**: リードエンジニアが必ず担当すべき重要タスクや、特定ドメイン知識を持つ担当者に優先的に任せたいタスクの割当を柔軟に制御しつつ、自動スケジューリングの最適化を活用できるようにするため
   - **ストーリー 4 (Issue #53: 負荷平準化ソフト制約 - 今後予定)**:
     - **As a**: チームリード
     - **I want**: 同一スキルを持つ複数メンバー間で作業負荷が偏らないよう、全体の納期を損なわずに負荷が平準化されるようにしたい
@@ -37,8 +37,8 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:15:00Z }
     - **So that**: メンバの長期不在や担当変更時にも柔軟に計画を継続するため
 - **背景と目的**:
   先行マイルストーンにおいて、Taskweave は原本 YAML（`members.yaml`, `tasks.yaml`, `calendar.yaml`, `actuals.yaml`）を基盤とした計画・実績追跡・再計画ワークフローを確立しました。
-  しかし、`members.yaml`（`members:`）、`tasks.yaml`（`tasks:`）、`calendar.yaml`（`calendar:`）がルートキー必須であるのに対し、`actuals.yaml` のみトップレベル直下に `work_logs` / `task_progress` を配置する形式と `actuals:` ルートキー形式が混在し、非対称性が生じていました（RFC #38）。
-  本仕様では、Milestone 5 の第1段階として原本 YAML のルートキー対称性を統一し、旧形式に対する段階的移行ポリシー（Deprecation Warning）を確立します。
+  しかし、原本タスク定義において特定メンバーへの担当割り当てを固定・推奨する構文が存在せず、CP-SAT ソルバーがスキル適合メンバーの中から任意に割り当てていました。
+  本仕様では、原本 YAML の対称性統一（Issue #50）に続き、`tasks.yaml` にハード割当制約（`assigned_to`）およびソフト割当制約（`preferred_member`）を導入し、厳格なバリデーションとソルバー最適化（ペナルティ項）、および `actuals.yaml` による実績優先原則を定義します。
 
 ---
 
@@ -77,6 +77,20 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:15:00Z }
   - `calendar.yaml` のチーム祝日（`holidays`）およびメンバー個別不在（`absences`）と併用された場合、それらの論理積（プロジェクト営業日 かつ 祝日でない かつ メンバー個別稼働曜日 かつ 個別不在でない日のみ稼働可能）として正しく扱われること。
 - **FR-12 (スケジュール出力・レポーティングへの正確な反映 - Issue #51)**:
   - `taskweave plan` / `replan` のスケジュール出力（Markdown 表、Mermaid ガントチャート）において、非稼働曜日を跨いだ作業日程（開始日・終了日・稼働日数）が正確に表示されること。
+- **FR-13 (`tasks.yaml` における明示的担当者指定 `assigned_to` - Issue #52)**:
+  - `tasks.yaml` の各タスク定義に、任意の `assigned_to: <member_id>`（ハード割当制約）フィールドを指定可能とする。
+  - `assigned_to` が指定されたタスクは、CP-SAT ソルバーにおいて該当メンバー以外への割当が禁止（`assigned[t, m] == 1`）される。
+- **FR-14 (`tasks.yaml` における推奨担当者指定 `preferred_member` - Issue #52)**:
+  - `tasks.yaml` の各タスク定義に、任意の `preferred_member: <member_id>`（ソフト割当制約）フィールドを指定可能とする。
+  - `preferred_member` が指定されたタスクは、CP-SAT ソルバーの目的関数にペナルティ項を追加し、工期最短化（Makespan）を阻害しない範囲で優先的に指定メンバーへ割り当てられる（ペナルティ係数は Makespan 1日延伸のペナルティ 1,000 未満かつ前倒しペナルティ 1 を上回る 100 とする）。
+- **FR-15 (`assigned_to` と `preferred_member` の相互排他バリデーション - Issue #52)**:
+  - 同一タスクに `assigned_to` と `preferred_member` の双方が指定された場合、構文バリデーションエラーとして弾くこと。
+- **FR-16 (割当指定の参照整合性およびスキル充足バリデーション - Issue #52)**:
+  - `members.yaml` に存在しないメンバーIDの指定や、タスクの必須スキル（`required_skills`）を保有しないメンバーの指定を `assigned_to` / `preferred_member` の双方で検知し、適切な論理バリデーションエラーを出力すること。
+- **FR-17 (`actuals.yaml` による実績優先原則 - Issue #52)**:
+  - `actuals.yaml` で過去の作業実績ログが存在する場合、原本 `tasks.yaml` の `assigned_to` 指定よりも `actuals.yaml` の実績作業者が優先される原則とする（再計画および将来の引き継ぎ・再割当 #54 に対応）。
+- **FR-18 (Infeasible 時のボトルネック診断 - Issue #52)**:
+  - `assigned_to` のハード制約や該当メンバーのキャパシティ不足、納期制約違反等により解なし（`INFEASIBLE`）となった場合、ソルバーおよび CLI は明確なボトルネック診断情報を出力すること。
 
 ### 2.2 非機能要件 (NFR: Non-Functional Requirements)
 
@@ -199,6 +213,39 @@ members:
 
 ---
 
+### 3.5 `tasks.yaml` 拡張スキーマ (担当者指定・推奨 - Issue #52)
+
+```yaml
+tasks:
+  - id: task-api
+    title: "REST API 設計と実装"
+    estimate_hours: 16.0
+    required_skills:
+      - backend
+    assigned_to: alice # ハード制約: Alice 以外への割当を禁止
+    depends_on: []
+    deadline: "2026-09-20"
+
+  - id: task-ui
+    title: "フロントエンド画面実装"
+    estimate_hours: 24.0
+    required_skills:
+      - frontend
+    preferred_member: bob # ソフト制約: 全体工期を延ばさない限り Bob を優先割当
+    depends_on:
+      - task-api
+    deadline: "2026-09-25"
+```
+
+#### フィールド詳細 (`tasks[]` 拡張)
+
+| フィールド名               | 型     | 必須 | デフォルト | 説明・制約                                                                                                                                                           |
+| :------------------------- | :----- | :--- | :--------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tasks[].assigned_to`      | string | 任意 | `null`     | ハード割当メンバー ID。指定メンバー以外への割当が禁止される。`members.yaml` に存在し、必須スキルをすべて満たす必要がある。`preferred_member` と同時指定不可。        |
+| `tasks[].preferred_member` | string | 任意 | `null`     | ソフト割当メンバー ID。全体工期を阻害しない範囲で優先的に割り当てられる。`members.yaml` に存在し、必須スキルをすべて満たす必要がある。`assigned_to` と同時指定不可。 |
+
+---
+
 ## 4. 受入基準とテストシナリオ (TDD 連携)
 
 ### シナリオ 1: `actuals:` ルートキー付き形式の正常ロード (AC-3)
@@ -284,7 +331,47 @@ members:
 - **操作 (When)**: `taskweave plan` または `taskweave replan` を実行し、Markdown 表および Mermaid ガントチャートを出力する。
 - **期待結果 (Then)**: 非稼働曜日（水曜日）を挟んで開始日（火曜）から終了日（木曜）までの日程が正しく計算・表示されること。
 
-### シナリオ 14: pytest 品質ゲート全通過 (Issue #51 AC-7)
+### シナリオ 14: `assigned_to` による固定割当 (Issue #52 AC-1, AC-3, AC-7)
+
+- **前提 (Given)**: `tasks.yaml` のタスクに `assigned_to: alice` が指定されている。Alice は必須スキルを満たしている。
+- **操作 (When)**: `taskweave plan` または `solve_schedule` を実行する。
+- **期待結果 (Then)**: 対象タスクの `assigned_to` が `alice` に確定し、他メンバーへの割当が行われないこと。
+
+### シナリオ 15: `preferred_member` による推奨割当と工期最短化優先 (Issue #52 AC-1, AC-4, AC-7)
+
+- **前提 (Given)**: 同一スキルを持つ Alice と Bob が存在し、タスクに `preferred_member: bob` が指定されている。
+- **操作 (When)**: `taskweave plan` または `solve_schedule` を実行する。
+- **期待結果 (Then)**:
+  - 工期最短化（Makespan）が阻害されない状況では、優先的に Bob に割り当てられること。
+  - Bob の稼働上限逼迫により全体工期が延びる場合は、ペナルティを許容して Alice に割り当てられ工期最短化が優先されること。
+
+### シナリオ 16: `assigned_to` と `preferred_member` の同時指定エラー (Issue #52 AC-5)
+
+- **前提 (Given)**: 同一タスクに `assigned_to: alice` と `preferred_member: bob` の双方が指定された `tasks.yaml` が存在する。
+- **操作 (When)**: `validate_tasks` または `validate_project_data` を実行する。
+- **期待結果 (Then)**: `valid == False` となり、同時指定不可のエラーメッセージが出力されること。
+
+### シナリオ 17: 未定義メンバーおよびスキル不適合メンバー指定エラー (Issue #52 AC-2)
+
+- **前提 (Given)**:
+  - ケース A: `tasks.yaml` の `assigned_to` または `preferred_member` に存在しないメンバー ID が指定されている。
+  - ケース B: `tasks.yaml` の `assigned_to` または `preferred_member` に、タスクの `required_skills` を持たないメンバーが指定されている。
+- **操作 (When)**: `validate_project_data` を実行する。
+- **期待結果 (Then)**: `valid == False` となり、適切な未定義参照エラーまたはスキル不適合エラーが出力されること。
+
+### シナリオ 18: `actuals.yaml` 実績作業者の優先原則 (Issue #52 AC-6)
+
+- **前提 (Given)**: 原本 `tasks.yaml` で `assigned_to: alice` と指定されているが、`actuals.yaml` で Bob による作業実績ログが記録されている着手済みタスクがある。
+- **操作 (When)**: `taskweave replan --as-of <date>` または `_solve_replan` を実行する。
+- **期待結果 (Then)**: 原本 `tasks.yaml` の指定に関わらず、実績に記録された Bob が担当者として優先・固定されること。
+
+### シナリオ 19: `assigned_to` による Infeasible 検出とボトルネック診断 (Issue #52 AC-3)
+
+- **前提 (Given)**: タスクに `assigned_to: alice` が指定されているが、Alice のキャパシティ不足や不在、先行依存等により納期・期間制約を満たせず解が存在しない。
+- **操作 (When)**: `solve_schedule` または `taskweave plan` を実行する。
+- **期待結果 (Then)**: `status` が `INFEASIBLE` となり、`diagnostics` および CLI 標準エラー出力に明確なボトルネック診断メッセージが出力されること。
+
+### シナリオ 20: pytest 品質ゲート全通過 (Issue #51 AC-7, Issue #52 AC-7)
 
 - **操作 (When)**: `test_validator.py`, `test_engine.py`, `test_cli.py` を含む全 pytest テストおよびリポジトリ品質ゲートを実行する。
 - **期待結果 (Then)**: すべてのテストケースが成功すること。
@@ -297,6 +384,8 @@ members:
 - **他原本ファイルのルートキー省略許容**: `members.yaml`, `tasks.yaml`, `calendar.yaml` は現行どおりルートキー必須を維持し、ルートキーなしは許容しない（RFC #38 の合意に基づく）。
 - **一括マイグレーション専用 CLI**: `taskweave migrate` 等の専用コマンドは現時点では実装せず、`taskweave log` による通常運用時の安全な自動変換で対応する（YAGNI 原則）。
 - **計画系 CLI コマンド（plan, replan, apply）での警告出力抑制**: JSON や Mermaid の標準出力パイプラインおよび自動化スクリプトとの親和性を保つため、警告出力は検証専門コマンド（`taskweave validate`）に集約し、`plan`, `replan`, `apply` などの計算・適用系コマンドでは warnings の標準エラー出力を抑制する設計とする（バリデーション失敗のエラーのみ stderr に出力）。
+- **複数担当者の同時割り当て（ペア作業）**: 1タスク1担当者制約（FR-5）を維持し、複数人での同時分担は対象外とする。
+- **`preferred_member` のペナルティ調整**: ペナルティ係数は固定値 `100` とし、動的重み付け設定やユーザー任意指定は対象外とする（YAGNI 原則）。
 - **プロジェクト営業日外の個別稼働の禁止 (Issue #51 AC-2)**: プロジェクトカレンダーの稼働日（`calendar.workdays`）に含まれない曜日（例: 週末副業など）をメンバー個別に指定することはスコープ外とし、プロジェクト営業日のサブセット（部分集合）に限定する（最小・安全なフィルター設計）。チームとして休日に稼働させる場合は `calendar.workdays` に該当曜日を追加してプロジェクト全体で許容する運用とする。
 
 ---
@@ -316,3 +405,11 @@ members:
   - **検討**: メンバーごとにプロジェクト営業日外の曜日（例: 土日）を独立して許容する「スーパーセットモデル」と、プロジェクト営業日を上限とする「サブセットモデル（フィルターモデル）」。
   - **決定**: サブセットモデル（`calendar.workdays` の部分集合）を採用。
   - **理由**: プロジェクト全体の営業日・カレンダーとの不整合を防ぎ、予期せぬ週末稼働や Makespan 算出の複雑化を防止するため。混成チームにおいて最も安全かつ最小の拡張である。
+- **設計判断 E: 推奨メンバーペナルティ係数の選定**:
+  - **検討**: 目的関数における `preferred_member` 非割り当て時のペナルティ係数。
+  - **決定**: `100`。
+  - **理由**: Makespan 最小化の重み（`1,000`）より小さく、かつ各タスクの前倒し重み（`1`）や中抜け抑制重み（`1`）より大きく設定することで、完了日のズレ（1/日）で推奨割当が逆転することなく、「工期が延びない限りは確実に推奨メンバーへ割り当て、工期が延びる場合は工期短縮を最優先する」という振る舞いを決定論的に保証するため。
+- **設計判断 F: `assigned_to` と `preferred_member` の相互排他**:
+  - **検討**: 同一タスクに両方指定された場合、`assigned_to` を優先適用して `preferred_member` を無視する案。
+  - **決定**: バリデーションエラーとして弾く。
+  - **理由**: ハード制約（完全固定）とソフト制約（推奨）を同一タスクに書くことは意図が矛盾しており、設定者の記述ミスを早期に検知・防止するため。

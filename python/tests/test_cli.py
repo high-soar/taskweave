@@ -1572,6 +1572,131 @@ class TestSinglePassDataPipeline:
         assert "ヒント" in captured.err
 
 
+class TestTaskAssignmentCLI:
+    """Issue #52: タスク担当者指定の CLI テスト."""
+
+    def test_plan_with_assigned_to_and_preferred_member(self, basic_project_files):
+        """AC-7: CLI plan で assigned_to と preferred_member が反映された担当者が出力されること."""
+        (basic_project_files / "tasks.yaml").write_text(
+            """tasks:
+  - id: "task-api"
+    title: "REST API 設計"
+    estimate_hours: 8.0
+    required_skills:
+      - backend
+    assigned_to: "bob"
+    depends_on: []
+  - id: "task-ui"
+    title: "UI 実装"
+    estimate_hours: 8.0
+    required_skills:
+      - frontend
+    preferred_member: "alice"
+    depends_on:
+      - "task-api"
+""",
+            encoding="utf-8",
+        )
+        result = run_cli("plan", str(basic_project_files), "--format", "text")
+        assert result.returncode == 0
+        assert "- task-api: bob" in result.stdout
+        assert "- task-ui: alice" in result.stdout
+
+    def test_plan_infeasible_outputs_bottlenecks_to_stderr(self, tmp_path):
+        """AC-3: assigned_to により Infeasible となった場合、stderr にボトルネック診断が出力されること."""
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        from unittest.mock import patch
+        infeasible_result = {
+            "status": "INFEASIBLE",
+            "diagnostics": {
+                "infeasible_reasons": ["メンバ 'alice' の計画期間内キャパシティを超過しています"]
+            }
+        }
+        with patch("taskweave.engine.solve_schedule", return_value=infeasible_result):
+            from taskweave.cli import main
+            import io
+            import sys
+            saved_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                code = main(["plan", str(tmp_path)])
+                err_out = sys.stderr.getvalue()
+                assert code == 1
+                assert "ボトルネック診断" in err_out
+                assert "alice" in err_out
+            finally:
+                sys.stderr = saved_stderr
+
+    def test_replan_infeasible_outputs_bottlenecks_to_stderr(self, tmp_path):
+        """[SHOULD] 3: replan コマンドで再計画が Infeasible となった場合、stderr にボトルネック診断が出力されること."""
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        from unittest.mock import patch
+        infeasible_replan_res = {
+            "baseline": {},
+            "replanned": {
+                "status": "INFEASIBLE",
+                "diagnostics": {
+                    "infeasible_reasons": ["メンバ 'alice' の計画期間内キャパシティを超過しています"]
+                },
+            },
+            "diff": {},
+        }
+        with patch("taskweave.replan.replan", return_value=infeasible_replan_res):
+            from taskweave.cli import main
+            import io
+            import sys
+            saved_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                code = main(["replan", str(tmp_path), "--as-of", "2026-09-02"])
+                err_out = sys.stderr.getvalue()
+                assert code == 1
+                assert "再計画の計算が完了しませんでした" in err_out
+                assert "ボトルネック診断" in err_out
+                assert "alice" in err_out
+            finally:
+                sys.stderr = saved_stderr
+
+    def test_apply_infeasible_outputs_bottlenecks_to_stderr(self, tmp_path):
+        """[SHOULD] 3: apply コマンドで再計画が Infeasible となった場合、stderr にボトルネック診断が出力されること."""
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "tasks.yaml").write_text((BASIC_DIR / "tasks.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+
+        from unittest.mock import patch
+        infeasible_replan_res = {
+            "baseline": {},
+            "replanned": {
+                "status": "INFEASIBLE",
+                "diagnostics": {
+                    "infeasible_reasons": ["メンバ 'alice' の計画期間内キャパシティを超過しています"]
+                },
+            },
+            "diff": {},
+        }
+        with patch("taskweave.replan.replan", return_value=infeasible_replan_res):
+            from taskweave.cli import main
+            import io
+            import sys
+            saved_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                code = main(["apply", str(tmp_path), "--as-of", "2026-09-02"])
+                err_out = sys.stderr.getvalue()
+                assert code == 1
+                assert "再計画の計算が完了しませんでした" in err_out
+                assert "ボトルネック診断" in err_out
+                assert "alice" in err_out
+            finally:
+                sys.stderr = saved_stderr
+
+
 class TestMemberWorkdaysCLI:
     """Issue #51: メンバー個別稼働曜日の CLI 連携テスト (AC-2, AC-6)."""
 

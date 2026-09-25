@@ -4,8 +4,8 @@ title: 計算エンジンの入出力および制約モデル仕様
 description: Python / OR-Tools CP-SAT を用いたスケジューリング計算モデル、入出力データ構造、および制約充足仕様
 tags: [scheduling, engine, or-tools, milestone-2]
 status: implemented
-issues: [12, 13, 14, 15, 16]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-12T01:20:00Z }
+issues: [12, 13, 14, 15, 16, 52]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:00:00Z }
 verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
 ---
 
@@ -15,7 +15,7 @@ verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
 
 - **ユーザーストーリー**:
   - **As a**: コーディングエージェントおよびプロジェクト計画担当者
-  - **I want**: 原本 YAML（メンバ・タスク・カレンダー）を読み込み、制約（稼働上限・依存関係・スキル・納期）を満たす最適なスケジュール案を Python / OR-Tools で自動計算・診断したい
+  - **I want**: 原本 YAML（メンバ・タスク・カレンダー）を読み込み、制約（稼働上限・依存関係・スキル・納期・担当者指定）を満たす最適なスケジュール案を Python / OR-Tools で自動計算・診断したい
   - **So that**: 手作業での複雑な調整を排除し、チームの稼働日やスキルに即した実行可能な最短計画を立案し、納期超過時にはボトルネックを早期に特定するため
 - **背景と目的**:
   Taskweave では原本 YAML（`members.yaml`, `tasks.yaml`, `calendar.yaml`）で計画の前提条件を管理します。
@@ -53,6 +53,10 @@ verified: { by: human:high-soar, at: 2026-09-11T11:42:00Z }
   - タスクの `depends_on` に存在しないタスク ID が含まれる場合、暗黙に無視せず入力エラー（`ValueError`）として計算を拒否すること（`001-yaml-schema` の FR-7 と整合）。
 - **FR-11 (動的計画地平)**:
   - タスク総工数とメンバ稼働キャパシティに応じて、必要な計画地平（Horizon）を自動的に計算・拡張し、長期タスクであっても解が存在する限り `INFEASIBLE` と誤判定しないこと。
+- **FR-12 (担当者明示指定 `assigned_to` ハード制約)**:
+  - タスクに `assigned_to: <member_id>` が指定されている場合、該当メンバ以外の担当変数 $\text{assigned}_{t, m}$ を 0 に強制し、必ず該当メンバに割り当てること。解が存在しない場合は `INFEASIBLE` として診断を出力すること（Issue #52）。
+- **FR-13 (推奨担当者 `preferred_member` ソフト制約ペナルティ)**:
+  - タスクに `preferred_member: <member_id>` が指定されている場合、ソルバー目的関数にペナルティ項を追加し、工期最短化（Makespan）を阻害しない範囲で優先的に該当メンバへ割り当てること（Issue #52）。
 
 ### 2.2 非機能要件 (NFR: Non-Functional Requirements)
 
@@ -147,17 +151,21 @@ CP-SAT は整数変数のみを扱うため、実数である工数・稼働上�
    - $\text{delay}_t$ の上限は各タスクの納期から動的に $\max(H, (H - 1) - \text{deadline\_day}_t)$ として導出され、数年前の極端な過去納期であっても解空間が飽和して `INFEASIBLE` になることを防ぎます。
 9. **全体工期 (Makespan) の定義**:
    $$\text{makespan} \ge \text{end\_day}_t \quad (\forall t \in T)$$
+10. **担当者固定制約 (assigned_to - Issue #52)**:
+    タスク $t$ に $\text{assigned\_to}_t = m^*$ が指定されている場合:
+    $$\text{assigned}_{t, m^*} = 1 \quad \text{および} \quad \text{assigned}_{t, m} = 0 \quad (\forall m \ne m^*)$$
 
 ### 3.5 目的関数 (Objective Function)
 
 複数の目標を優先度順に重み付けして最小化します。
 
-$$\min \left( 10000 \times \sum_{t \in T} \text{delay}_t + 100 \times \text{makespan} + 5 \times \sum_{t \in T} \text{end\_day}_t + 2 \times \sum_{t \in T} (\text{end\_day}_t - \text{start\_day}_t) \right)$$
+$$\min \left( 100000 \times \sum_{t \in T} \text{delay}_t + 1000 \times \text{makespan} + 100 \times \sum_{t \in T_{\text{pref}}} (1 - \text{assigned}_{t, \text{pref}(t)}) + 1 \times \sum_{t \in T} \text{end\_day}_t + 1 \times \sum_{t \in T} (\text{end\_day}_t - \text{start\_day}_t) \right)$$
 
-- **第1項 (重み 10,000)**: 納期遅延の最小化（最優先）
-- **第2項 (重み 100)**: 全体工期 Makespan の最小化
-- **第3項 (重み 5)**: 各タスクの前倒し完了促進
-- **第4項 (重み 2)**: 各タスクの所要スパンの最小化（不要な中抜けの抑制）
+- **第1項 (重み 100,000)**: 納期遅延の最小化（最優先）
+- **第2項 (重み 1,000)**: 全体工期 Makespan の最小化
+- **第3項 (重み 100)**: 推奨担当者（`preferred_member`）への優先割当促進（Makespan 1日延伸ペナルティ 1,000 より小さく、各タスクの前倒し完了促進ペナルティ 1 より十分に大きく設定することで、全体工期最短化を阻害しない範囲で確実に推奨メンバーへ割り当て）
+- **第4項 (重み 1)**: 各タスクの前倒し完了促進
+- **第5項 (重み 1)**: 各タスクの所要スパンの最小化（不要な中抜けの抑制）
 
 ---
 
