@@ -223,12 +223,41 @@ def validate_members(yaml_string: str) -> ValidationResult:
             else:
                 skills = raw_skills
 
-        members.append({
+        member_workdays: list[str] | None = None
+        if "workdays" in m:
+            raw_wd = m["workdays"]
+            if raw_wd is None or not isinstance(raw_wd, list):
+                errors.append(
+                    f"{prefix}.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります"
+                )
+            elif any(not isinstance(w, str) or w not in VALID_WORKDAYS for w in raw_wd):
+                invalid_items = [repr(w) for w in raw_wd if not isinstance(w, str) or w not in VALID_WORKDAYS]
+                errors.append(
+                    f"{prefix}.workdays: 有効な曜日 (mon, tue, wed, thu, fri, sat, sun) の配列である必要があります (不正な要素: {', '.join(invalid_items)})"
+                )
+            elif len(raw_wd) == 0:
+                errors.append(f"{prefix}.workdays: 少なくとも1つの有効な稼働曜日を指定する必要があります")
+            else:
+                seen_wd: set[str] = set()
+                has_dup = False
+                for w in raw_wd:
+                    if w in seen_wd:
+                        errors.append(f'{prefix}.workdays: "{w}" は重複しています')
+                        has_dup = True
+                    seen_wd.add(w)
+                if not has_dup:
+                    member_workdays = raw_wd
+
+        member_item: dict[str, Any] = {
             "id": m_id,
             "name": m_name,
             "max_capacity": max_capacity,
             "skills": skills,
-        })
+        }
+        if member_workdays is not None:
+            member_item["workdays"] = member_workdays
+
+        members.append(member_item)
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, data=members)
 
@@ -626,7 +655,25 @@ def validate_logical_integrity(
         if visited.get(task_id, 0) == 0:
             dfs(task_id, [])
 
-    # 3. 未定義スキル参照チェック (Undefined Skill Reference)
+    # 3. メンバー個別稼働曜日のカレンダー営業日整合性チェック (Issue #51 AC-2)
+    cal_workdays_list = calendar.get("workdays", ["mon", "tue", "wed", "thu", "fri"]) if isinstance(calendar, dict) else ["mon", "tue", "wed", "thu", "fri"]
+    cal_workdays_set = {w for w in cal_workdays_list if isinstance(w, str)}
+    if isinstance(members, list):
+        for i, m in enumerate(members):
+            if not isinstance(m, dict):
+                continue
+            m_workdays = m.get("workdays")
+            if isinstance(m_workdays, list):
+                invalid_days = [w for w in m_workdays if w not in cal_workdays_set]
+                if invalid_days:
+                    cal_str = ", ".join(cal_workdays_list)
+                    inv_str = ", ".join(repr(w) for w in invalid_days)
+                    errors.append(
+                        f'members[{i}].workdays: プロジェクトカレンダーの稼働曜日 ({cal_str}) に含まれない曜日 ({inv_str}) が指定されています。'
+                        f"解決のヒント: calendar.yaml の稼働曜日に曜日を追加するか、メンバの稼働曜日を見直してください"
+                    )
+
+    # 4. 未定義スキル参照チェック (Undefined Skill Reference)
     member_ids: set[str] = set()
     if isinstance(members, list):
         member_ids = {
@@ -1003,5 +1050,16 @@ def validate_schedule_inputs(
                 raise ValueError(
                     f"タスク '{t_id}' の必須スキル {sorted(req_skills)} をすべて保有するメンバが members に存在しません。"
                 )
+
+    # メンバ個別稼働曜日の検証 (AC-2)
+    for m_id, member in members.items():
+        m_workdays = member.get("workdays")
+        if isinstance(m_workdays, list):
+            for w in m_workdays:
+                if w not in allowed_weekdays:
+                    raise ValueError(
+                        f"メンバ '{m_id}' の稼働曜日 '{w}' が calendar.workdays に含まれていません。"
+                    )
+
 
 

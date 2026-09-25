@@ -268,9 +268,22 @@ def solve_schedule(
         holidays_config=holidays_cfg,
     )
 
-    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16)
+    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16, Issue #51 AC-4)
+    member_workdays_map = {
+        m["id"]: {WEEKDAY_MAP[w] for w in m["workdays"] if w in WEEKDAY_MAP}
+        if isinstance(m.get("workdays"), list)
+        else None
+        for m in members_data
+    }
     daily_caps = {
-        (m_id, d): (0 if (m_id, workdays[d]) in absent_set else member_capacities[m_id])
+        (m_id, d): (
+            0
+            if (
+                (m_id, workdays[d]) in absent_set
+                or (member_workdays_map[m_id] is not None and workdays[d].weekday() not in member_workdays_map[m_id])
+            )
+            else member_capacities[m_id]
+        )
         for m_id in member_ids
         for d in range(horizon_days)
     }
@@ -782,9 +795,22 @@ def _solve_replan(
         holidays_config=holidays_cfg,
     )
 
-    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16)
+    # メンバ別・日別キャパシティ行列 C_{m, d} (FR-16, Issue #51 AC-4)
+    member_workdays_map = {
+        m["id"]: {WEEKDAY_MAP[w] for w in m["workdays"] if w in WEEKDAY_MAP}
+        if isinstance(m.get("workdays"), list)
+        else None
+        for m in members_data
+    }
     future_daily_caps = {
-        (m_id, d): (0 if (m_id, future_workdays[d]) in absent_set else member_capacities[m_id])
+        (m_id, d): (
+            0
+            if (
+                (m_id, future_workdays[d]) in absent_set
+                or (member_workdays_map[m_id] is not None and future_workdays[d].weekday() not in member_workdays_map[m_id])
+            )
+            else member_capacities[m_id]
+        )
         for m_id in member_ids
         for d in range(future_horizon_days)
     }

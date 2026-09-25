@@ -1706,3 +1706,171 @@ def test_absences_invalid_or_empty_date_ignored():
     assert len(parsed) == 1
     assert ("alice", datetime.date(2026, 9, 2)) in parsed
 
+
+def test_member_workdays_capacity_zero_and_task_avoidance():
+    """AC-4: メンバーの workdays に含まれない曜日はキャパシティが 0 となり、タスクが割り当てられないこと."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "workdays": ["mon", "wed", "fri"], "skills": ["frontend"]},
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "workdays": ["tue", "thu"], "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Frontend Task", "estimate_hours": 8.0, "required_skills": ["frontend"], "depends_on": []},
+        {"id": "t2", "title": "Backend Task", "estimate_hours": 8.0, "required_skills": ["backend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    # 2026-09-01 は火曜日
+    start_date = datetime.date(2026, 9, 1)
+
+    res = solve_schedule(members, tasks, calendar, start_date)
+    assert res["status"] == "OPTIMAL"
+
+    t1 = res["tasks"]["t1"]
+    t2 = res["tasks"]["t2"]
+
+    # t1 は Alice (月・水・金) に割り当てられる。火曜(9/1)は非稼働のため水曜(9/2)に実施されること
+    assert t1["assigned_to"] == "alice"
+    assert t1["start_date"] == "2026-09-02"
+    assert t1["end_date"] == "2026-09-02"
+    assert "2026-09-01" not in t1["daily_hours"]
+    assert t1["daily_hours"]["2026-09-02"] == 8.0
+
+    # t2 は Bob (火・木) に割り当てられる。火曜(9/1)に実施されること
+    assert t2["assigned_to"] == "bob"
+    assert t2["start_date"] == "2026-09-01"
+    assert t2["end_date"] == "2026-09-01"
+    assert t2["daily_hours"]["2026-09-01"] == 8.0
+
+    # member_daily_work においても非稼働曜日の実績がないこと
+    alice_work = res["member_daily_work"]["alice"]
+    assert "2026-09-01" not in alice_work  # 火曜
+    assert alice_work["2026-09-02"] == 8.0  # 水曜
+
+    bob_work = res["member_daily_work"]["bob"]
+    assert bob_work["2026-09-01"] == 8.0  # 火曜
+    assert "2026-09-02" not in bob_work  # 水曜
+
+
+def test_member_workdays_combined_with_holidays_and_absences():
+    """AC-5: チーム祝日および個別不在と併用された場合、論理積として正しく扱われること."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "workdays": ["mon", "wed", "fri"], "skills": ["frontend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 8.0, "required_skills": ["frontend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [{"date": "2026-09-07", "name": "月曜祝日"}],
+        "absences": [{"member_id": "alice", "date": "2026-09-09", "name": "水曜不在"}],
+    }
+    # 2026-09-07 は月曜日（祝日）
+    # 2026-09-08 は火曜日（Alice非稼働）
+    # 2026-09-09 は水曜日（Alice不在）
+    # 2026-09-10 は木曜日（Alice非稼働）
+    # 2026-09-11 は金曜日（Alice稼働日！）
+    start_date = datetime.date(2026, 9, 7)
+
+    res = solve_schedule(members, tasks, calendar, start_date)
+    assert res["status"] == "OPTIMAL"
+
+    t1 = res["tasks"]["t1"]
+    assert t1["start_date"] == "2026-09-11"
+    assert t1["end_date"] == "2026-09-11"
+    assert t1["daily_hours"]["2026-09-11"] == 8.0
+
+
+def test_member_workdays_omitted_uses_team_calendar():
+    """AC-3: workdays 未指定のメンバーは従来のチームカレンダー設定（デフォルト: 月〜金）に従うこと."""
+    members = [
+        {"id": "alice", "name": "Alice", "max_capacity": 1.0, "skills": ["frontend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Task 1", "estimate_hours": 16.0, "required_skills": ["frontend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    res = solve_schedule(members, tasks, calendar, start_date)
+    assert res["status"] == "OPTIMAL"
+    t1 = res["tasks"]["t1"]
+    # 火曜・水曜で連続完了すること
+    assert t1["start_date"] == "2026-09-01"
+    assert t1["end_date"] == "2026-09-02"
+    assert t1["daily_hours"]["2026-09-01"] == 8.0
+    assert t1["daily_hours"]["2026-09-02"] == 8.0
+
+
+def test_member_workdays_spans_non_workdays_correctly():
+    """AC-6: 非稼働曜日を跨いだ作業日程が正確に計算されること."""
+    members = [
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "workdays": ["tue", "thu"], "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Backend Task", "estimate_hours": 16.0, "required_skills": ["backend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    start_date = datetime.date(2026, 9, 1)  # 火曜日
+
+    res = solve_schedule(members, tasks, calendar, start_date)
+    assert res["status"] == "OPTIMAL"
+    t1 = res["tasks"]["t1"]
+    # 9/1 (火) 8h, 9/2 (水) スキップ, 9/3 (木) 8h で完了
+    assert t1["start_date"] == "2026-09-01"
+    assert t1["end_date"] == "2026-09-03"
+    assert t1["daily_hours"]["2026-09-01"] == 8.0
+    assert "2026-09-02" not in t1["daily_hours"]
+    assert t1["daily_hours"]["2026-09-03"] == 8.0
+    assert t1["actual_active_days"] == 2
+
+
+def test_member_workdays_replan():
+    """AC-4, AC-5: 再計画 (_solve_replan) においてもメンバー個別 workdays が正しく反映されること."""
+    members = [
+        {"id": "bob", "name": "Bob", "max_capacity": 1.0, "workdays": ["tue", "thu"], "skills": ["backend"]},
+    ]
+    tasks = [
+        {"id": "t1", "title": "Backend Task", "estimate_hours": 16.0, "required_skills": ["backend"], "depends_on": []},
+    ]
+    calendar = {
+        "workdays": ["mon", "tue", "wed", "thu", "fri"],
+        "holidays": [],
+        "absences": [],
+    }
+    project_start = datetime.date(2026, 9, 1)  # 火曜日
+    as_of_date = datetime.date(2026, 9, 2)  # 水曜日
+
+    actuals = {
+        "work_logs": [{"date": "2026-09-01", "member_id": "bob", "task_id": "t1", "hours": 8.0}],
+        "task_progress": [{"task_id": "t1", "remaining_hours": 8.0, "status": "in_progress"}],
+    }
+
+    res = solve_schedule(
+        members,
+        tasks,
+        calendar,
+        project_start,
+        as_of_date=as_of_date,
+        actuals_data=actuals,
+    )
+    assert res["status"] == "OPTIMAL"
+    t1 = res["tasks"]["t1"]
+    # 過去実績 9/1 (火) 8h、未来作業は 9/2 (水) は非稼働のため 9/3 (木) 8h で完了
+    assert t1["start_date"] == "2026-09-01"
+    assert t1["end_date"] == "2026-09-03"
+    assert "2026-09-02" not in t1["daily_hours"]
+    assert t1["daily_hours"]["2026-09-01"] == 8.0
+    assert t1["daily_hours"]["2026-09-03"] == 8.0
+
+

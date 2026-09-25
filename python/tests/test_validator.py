@@ -12,6 +12,7 @@ from taskweave.validator import (
     validate_logical_integrity,
     validate_members,
     validate_project_data,
+    validate_schedule_inputs,
     validate_tasks,
 )
 
@@ -1214,6 +1215,121 @@ work_logs:
         assert res.valid is True
         assert len(res.errors) == 0
         assert res.warnings == []
+
+
+class TestMemberWorkdaysValidation:
+    """Issue #51: members.yaml の workdays フィールド構文・論理整合性検証テスト."""
+
+    def test_members_with_valid_workdays(self):
+        """AC-1: 有効な workdays を指定した場合、正常にパースされて data に保持されること."""
+        yaml_content = """
+members:
+  - id: alice
+    name: "Alice"
+    workdays: ["mon", "wed", "fri"]
+  - id: bob
+    name: "Bob"
+"""
+        result = validate_members(yaml_content)
+        assert result.valid is True
+        assert len(result.errors) == 0
+        assert result.data[0]["workdays"] == ["mon", "wed", "fri"]
+        assert result.data[1].get("workdays") is None
+
+    def test_members_workdays_invalid_types(self):
+        """AC-2: workdays が配列でない場合や null、要素が文字列でない場合はエラー."""
+        # 文字列
+        res1 = validate_members("members:\n  - id: a\n    name: A\n    workdays: 'mon'")
+        assert res1.valid is False
+        assert any("workdays" in e and "配列" in e for e in res1.errors)
+
+        # null
+        res2 = validate_members("members:\n  - id: a\n    name: A\n    workdays: null")
+        assert res2.valid is False
+        assert any("workdays" in e and "配列" in e for e in res2.errors)
+
+        # 配列内の要素が数値
+        res3 = validate_members("members:\n  - id: a\n    name: A\n    workdays: [123]")
+        assert res3.valid is False
+        assert any("workdays" in e for e in res3.errors)
+
+    def test_members_workdays_invalid_value(self):
+        """AC-2: 不正な曜日名が指定された場合はエラー."""
+        res = validate_members("members:\n  - id: a\n    name: A\n    workdays: ['mon', 'funday']")
+        assert res.valid is False
+        assert any("workdays" in e and "funday" in e for e in res.errors)
+
+    def test_members_workdays_duplicate(self):
+        """AC-2: 曜日が重複して指定された場合はエラー."""
+        res = validate_members("members:\n  - id: a\n    name: A\n    workdays: ['mon', 'wed', 'mon']")
+        assert res.valid is False
+        assert any("workdays" in e and "重複" in e for e in res.errors)
+
+    def test_members_workdays_empty_list(self):
+        """AC-2: 空リストは禁止（少なくとも1つの稼働曜日が必要）."""
+        res = validate_members("members:\n  - id: a\n    name: A\n    workdays: []")
+        assert res.valid is False
+        assert any("workdays" in e and "少なくとも1つ" in e for e in res.errors)
+
+    def test_logical_integrity_member_workdays_not_subset_of_calendar(self):
+        """AC-2: メンバーの workdays が calendar.workdays のサブセットでない場合は論理整合性エラー."""
+        members = [
+            {"id": "alice", "name": "Alice", "workdays": ["mon", "wed", "sat"], "skills": []},
+        ]
+        tasks = [{"id": "t1", "title": "Task 1", "estimate_hours": 4.0}]
+        calendar = {
+            "workdays": ["mon", "tue", "wed", "thu", "fri"],
+            "holidays": [],
+            "absences": [],
+        }
+        res = validate_logical_integrity(members, tasks, calendar)
+        assert res.valid is False
+        assert any("workdays" in e and "sat" in e for e in res.errors)
+
+    def test_validate_project_data_member_workdays_subset_error(self, tmp_path):
+        """AC-2: プロジェクト一括検証で行番号付きエラーが出力されること."""
+        (tmp_path / "members.yaml").write_text(
+            """members:
+  - id: alice
+    name: Alice
+    workdays:
+      - mon
+      - sat
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "calendar.yaml").write_text(
+            """calendar:
+  workdays:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "tasks.yaml").write_text(
+            """tasks:
+  - id: task-1
+    title: Task 1
+    estimate_hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        res = validate_project_data(tmp_path)
+        assert res.valid is False
+        assert any("members.yaml" in e and "sat" in e for e in res.formatted_errors)
+
+    def test_validate_schedule_inputs_member_workdays_not_subset(self):
+        """validate_schedule_inputs でも営業日外の曜日指定で ValueError が送出されること."""
+        members = [{"id": "alice", "name": "Alice", "workdays": ["mon", "sun"]}]
+        tasks = [{"id": "t1", "title": "Task 1", "estimate_hours": 4.0}]
+        calendar = {"workdays": ["mon", "tue", "wed", "thu", "fri"]}
+        import pytest
+        with pytest.raises(ValueError, match="sun"):
+            validate_schedule_inputs(members, tasks, calendar)
+
 
 
 

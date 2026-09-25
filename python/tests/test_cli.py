@@ -1572,6 +1572,93 @@ class TestSinglePassDataPipeline:
         assert "ヒント" in captured.err
 
 
+class TestMemberWorkdaysCLI:
+    """Issue #51: メンバー個別稼働曜日の CLI 連携テスト (AC-2, AC-6)."""
+
+    def test_cli_validate_reports_member_workdays_subset_error(self, tmp_path):
+        """AC-2: プロジェクト営業日外の曜日が指定された場合、validate コマンドがエラーを出力して失敗すること."""
+        (tmp_path / "members.yaml").write_text(
+            """members:
+  - id: alice
+    name: Alice
+    workdays:
+      - mon
+      - sat
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "calendar.yaml").write_text(
+            """calendar:
+  workdays:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "tasks.yaml").write_text(
+            """tasks:
+  - id: task-1
+    title: Task 1
+    estimate_hours: 4.0
+""",
+            encoding="utf-8",
+        )
+        result = run_cli("validate", str(tmp_path))
+        assert result.returncode == 1
+        assert "sat" in result.stderr
+
+    def test_cli_plan_with_member_workdays_markdown_and_mermaid(self, tmp_path):
+        """AC-6: メンバー個別稼働曜日を含むプロジェクトの plan 実行で Markdown と Mermaid が正確に出力されること."""
+        (tmp_path / "members.yaml").write_text(
+            """members:
+  - id: bob
+    name: Bob
+    max_capacity: 1.0
+    workdays:
+      - tue
+      - thu
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "calendar.yaml").write_text(
+            """calendar:
+  workdays:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "tasks.yaml").write_text(
+            """tasks:
+  - id: task-bob
+    title: Bob Task
+    estimate_hours: 16.0
+""",
+            encoding="utf-8",
+        )
+
+        # Markdown 形式
+        res_md = run_cli("plan", str(tmp_path), "--start-date", "2026-09-01", "--format", "markdown")
+        assert res_md.returncode == 0
+        # 9/1 (火) 開始、9/3 (木) 終了が表に含まれること
+        assert "2026-09-01" in res_md.stdout
+        assert "2026-09-03" in res_md.stdout
+
+        # Mermaid 形式
+        res_mermaid = run_cli("plan", str(tmp_path), "--start-date", "2026-09-01", "--format", "mermaid")
+        assert res_mermaid.returncode == 0
+        assert "task-bob" in res_mermaid.stdout
+        assert "2026-09-01" in res_mermaid.stdout
+        assert "2026-09-03" in res_mermaid.stdout
+
+
+
 
 
 

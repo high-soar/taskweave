@@ -3,9 +3,10 @@ type: spec
 title: スキーマ表現力 & 最適化強化仕様
 description: 原本 YAML スキーマのルートキー対称性統一、非推奨警告、メンバー個別稼働曜日、担当者明示指定、負荷平準化およびタスク引き継ぎの仕様定義
 tags: [schema, symmetry, deprecation, actuals, optimization, milestone-5]
-status: draft
-issues: [50]
-generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T03:00:00Z }
+status: accepted
+issues: [50, 51]
+generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T05:00:00Z }
+verified: { by: human:high-soar, at: 2026-09-25T05:00:00Z }
 ---
 
 # スキーマ表現力 & 最適化強化仕様 (006-schema-expressiveness-and-optimization)
@@ -19,10 +20,10 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T03:00:00Z }
     - **As a**: プロジェクト管理者およびコーディングエージェント
     - **I want**: `actuals.yaml` において他の原本 YAML（`members.yaml`, `tasks.yaml`, `calendar.yaml`）と同様に `actuals:` ルートキー構造を推奨形式として対称性を統一し、旧形式（トップレベル直下形式）に対して非推奨警告（Deprecation Warning）を出力したい
     - **So that**: 原本 YAML スキーマの対称性・一貫性を確立し、エージェントやツールが迷いなく構造化データを解析・生成できるようにするため（RFC #38 の合意に基づく）
-  - **ストーリー 2 (Issue #51: メンバー個別稼働曜日 - 今後予定)**:
-    - **As a**: 業務委託や副業メンバーを抱えるプロジェクト管理者
-    - **I want**: メンバーごとに個別の稼働曜日（例: 火・木のみ）を `members.yaml` で直接定義したい
-    - **So that**: 変則的な稼働形態を持つチームのキャパシティ設定を簡潔に行うため
+  - **ストーリー 2 (Issue #51: メンバー個別稼働曜日（workdays）の原本定義とスケジュール計算への反映)**:
+    - **As a**: プロジェクト管理者および混成チームのリード
+    - **I want**: 業務委託・時短勤務・副業メンバーなど特定曜日のみ稼働するメンバーの個別稼働曜日（例: `workdays: ["mon", "wed", "fri"]`）を `members.yaml` に定義し、スケジュール計算に反映させたい
+    - **So that**: カレンダー原本（`calendar.yaml` の `absences`）に毎週の非稼働日を個別登録する手間をなくし、混成チームのキャパシティを簡潔かつ正確に管理できるようにするため
   - **ストーリー 3 (Issue #52: 担当者の明示指定・推奨 - 今後予定)**:
     - **As a**: プロジェクト管理者および計画立案者
     - **I want**: `tasks.yaml` においてタスクの担当者を事前指定（`assigned_to`）または推奨（`preferred_member`）したい
@@ -63,6 +64,20 @@ generated: { by: antigravity/gemini-3.8-flash, at: 2026-09-25T03:00:00Z }
 - **FR-6 (透過的な正規化ロードと後方互換性)**:
   - `actuals:` ルートキー付き形式の `actuals.yaml` は `warnings` なしで正常にロードされる。
   - `taskweave plan`, `taskweave replan`, `taskweave apply` などの計算エンジンおよび CLI コマンドは、ルートキー有無に関わらず透過的に同一のデータ構造（`work_logs`, `task_progress`）として解釈する。
+- **FR-7 (`members[].workdays` の原本定義と構文制約 - Issue #51)**:
+  - `members.yaml` の各メンバー定義に、個別稼働曜日を表す `workdays` フィールド（曜日文字列のリスト: `"mon"`, `"tue"`, `"wed"`, `"thu"`, `"fri"`, `"sat"`, `"sun"`）を任意指定できること。
+  - バリデータは、配列型、許容曜日文字列、重複要素の禁止、および空リスト（要素数0）の禁止を構文検証する。
+- **FR-8 (`calendar.workdays` サブセット検証 - 最小・安全なフィルター設計 - Issue #51)**:
+  - プロジェクトの論理整合性検証において、各メンバーの `workdays` がプロジェクトカレンダーの営業日（`calendar.workdays`）のサブセット（部分集合）であることを検証する。
+  - プロジェクト営業日外の曜日（例: プロジェクトが月〜金稼働でメンバーに土曜を指定）が定義された場合は論理整合性エラーを出力し、解決ヒントを提示する。
+- **FR-9 (`workdays` 省略時のデフォルト継承 - Issue #51)**:
+  - `workdays` が未指定（省略）のメンバーは、従来のチームカレンダー営業日設定（`calendar.workdays`、デフォルト: 月〜金）に従う。
+- **FR-10 (日別キャパシティ計算における非稼働曜日のキャパシティ 0 化 - Issue #51)**:
+  - 計算エンジン（`engine.py`）の初期計画（`solve_schedule`）および再計画（`_solve_replan`）において、メンバーの `workdays` に含まれない曜日のキャパシティ（利用可能時間）を 0 とし、タスクの割当を抑止する。
+- **FR-11 (チーム祝日・個別不在との論理積結合 - Issue #51)**:
+  - `calendar.yaml` のチーム祝日（`holidays`）およびメンバー個別不在（`absences`）と併用された場合、それらの論理積（プロジェクト営業日 かつ 祝日でない かつ メンバー個別稼働曜日 かつ 個別不在でない日のみ稼働可能）として正しく扱われること。
+- **FR-12 (スケジュール出力・レポーティングへの正確な反映 - Issue #51)**:
+  - `taskweave plan` / `replan` のスケジュール出力（Markdown 表、Mermaid ガントチャート）において、非稼働曜日を跨いだ作業日程（開始日・終了日・稼働日数）が正確に表示されること。
 
 ### 2.2 非機能要件 (NFR: Non-Functional Requirements)
 
@@ -155,6 +170,36 @@ task_progress:
 
 ---
 
+### 3.4 `members.yaml` 拡張スキーマ (`workdays` - Issue #51)
+
+特定曜日のみ稼働するメンバー（業務委託・時短勤務・副業など）の稼働曜日をメンバーごとに定義します。
+
+```yaml
+members:
+  - id: alice
+    name: "Alice"
+    max_capacity: 1.0
+    skills:
+      - backend
+  - id: bob
+    name: "Bob (週3日稼働)"
+    max_capacity: 1.0
+    workdays:
+      - mon
+      - wed
+      - fri
+    skills:
+      - frontend
+```
+
+#### フィールド詳細 (`members[].workdays`)
+
+| フィールド名         | 型             | 必須 | デフォルト              | 説明・制約                                                                                                                                                                                                                                               |
+| :------------------- | :------------- | :--- | :---------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `members[].workdays` | list of string | 任意 | `null` (カレンダー準拠) | メンバー固有の稼働曜日リスト。値は `mon`, `tue`, `wed`, `thu`, `fri`, `sat`, `sun` のいずれか。重複不可、空リスト（`[]`）不可。プロジェクトカレンダーの営業日（`calendar.workdays`）のサブセットであること。未指定時はプロジェクトカレンダー設定に従う。 |
+
+---
+
 ## 4. 受入基準とテストシナリオ (TDD 連携)
 
 ### シナリオ 1: `actuals:` ルートキー付き形式の正常ロード (AC-3)
@@ -202,6 +247,49 @@ task_progress:
 - **操作 (When)**: `uv run pytest` および `npm test` を実行する。
 - **期待結果 (Then)**: すべてのテストケースが成功し、リポジトリ品質ゲートが全通過すること。
 
+### シナリオ 8: `members.yaml` の `workdays` 構文検証 (Issue #51 AC-1, AC-2)
+
+- **前提 (Given)**: `members.yaml` 内のメンバーに `workdays` フィールドが指定されている。
+- **操作 (When)**: `validate_members` を実行する。
+- **期待結果 (Then)**:
+  - 正しい形式（例: `["mon", "wed", "fri"]`）の場合、`valid == True` でパース結果に `workdays` リストが保持されること。
+  - 不正な型（文字列以外、数値、null）、不正な曜日名（`"funday"` 等）、重複曜日（`["mon", "mon"]`）、空配列（`[]`）の場合、`valid == False` となり具体的な構文エラーメッセージが出力されること。
+
+### シナリオ 9: `calendar.workdays` サブセット検証エラー (Issue #51 AC-2)
+
+- **前提 (Given)**: `calendar.yaml` で `workdays: ["mon", "tue", "wed", "thu", "fri"]` が設定されており、`members.yaml` のメンバーに `workdays: ["mon", "sat"]` のようにプロジェクト営業日外の曜日が指定されている。
+- **操作 (When)**: `validate_project_data` または `validate_logical_integrity` を実行する。
+- **期待結果 (Then)**: `valid == False` となり、該当メンバー、指定されたプロジェクト外の曜日、およびプロジェクト営業日のサブセットで指定すべき旨の解決ヒントを含む論理整合性エラーが出力されること。
+
+### シナリオ 10: `workdays` 未指定メンバーの後方互換性 (Issue #51 AC-3)
+
+- **前提 (Given)**: `members.yaml` 内のメンバー定義に `workdays` が未指定（省略）である。
+- **操作 (When)**: `validate_project_data` および `solve_schedule` を実行する。
+- **期待結果 (Then)**: エラーなく正常に処理され、プロジェクトカレンダーの営業日設定（`calendar.workdays`、デフォルト: 月〜金）に従って日別キャパシティが割り当てられること。
+
+### シナリオ 11: 非稼働曜日のキャパシティ 0 化とタスク割当抑止 (Issue #51 AC-4)
+
+- **前提 (Given)**: メンバー Alice の稼働曜日が `["mon", "wed", "fri"]` と指定されている。
+- **操作 (When)**: `solve_schedule` または `_solve_replan` を実行する。
+- **期待結果 (Then)**: Alice の非稼働曜日（火曜・木曜・土曜・日曜）の日別キャパシティが 0 となり、Alice の担当タスクの作業時間がこれらの曜日に一切割り当てられないこと。
+
+### シナリオ 12: チーム祝日・個別不在との論理積 (Issue #51 AC-5)
+
+- **前提 (Given)**: メンバー Alice の稼働曜日が `["mon", "wed", "fri"]` であり、ある週の月曜日が祝日（`calendar.holidays`）、水曜日が Alice の個別不在（`calendar.absences`）として登録されている。
+- **操作 (When)**: スケジュール計算を実行する。
+- **期待結果 (Then)**: その週の Alice の稼働可能日は金曜日のみとなり、祝日の月曜日および個別不在の水曜日には作業時間が割り当てられないこと（論理積の成立）。
+
+### シナリオ 13: スケジュール出力・レポーティングでの非稼働曜日跨ぎ表示 (Issue #51 AC-6)
+
+- **前提 (Given)**: 火曜・木曜のみ稼働のメンバーに 16 時間（8h × 2 稼働日）のタスクが割り当てられている。
+- **操作 (When)**: `taskweave plan` または `taskweave replan` を実行し、Markdown 表および Mermaid ガントチャートを出力する。
+- **期待結果 (Then)**: 非稼働曜日（水曜日）を挟んで開始日（火曜）から終了日（木曜）までの日程が正しく計算・表示されること。
+
+### シナリオ 14: pytest 品質ゲート全通過 (Issue #51 AC-7)
+
+- **操作 (When)**: `test_validator.py`, `test_engine.py`, `test_cli.py` を含む全 pytest テストおよびリポジトリ品質ゲートを実行する。
+- **期待結果 (Then)**: すべてのテストケースが成功すること。
+
 ---
 
 ## 5. 制約事項・スコープ外 (Out of Scope)
@@ -210,6 +298,7 @@ task_progress:
 - **他原本ファイルのルートキー省略許容**: `members.yaml`, `tasks.yaml`, `calendar.yaml` は現行どおりルートキー必須を維持し、ルートキーなしは許容しない（RFC #38 の合意に基づく）。
 - **一括マイグレーション専用 CLI**: `taskweave migrate` 等の専用コマンドは現時点では実装せず、`taskweave log` による通常運用時の安全な自動変換で対応する（YAGNI 原則）。
 - **計画系 CLI コマンド（plan, replan, apply）での警告出力抑制**: JSON や Mermaid の標準出力パイプラインおよび自動化スクリプトとの親和性を保つため、警告出力は検証専門コマンド（`taskweave validate`）に集約し、`plan`, `replan`, `apply` などの計算・適用系コマンドでは warnings の標準エラー出力を抑制する設計とする（バリデーション失敗のエラーのみ stderr に出力）。
+- **プロジェクト営業日外の個別稼働の禁止 (Issue #51 AC-2)**: プロジェクトカレンダーの稼働日（`calendar.workdays`）に含まれない曜日（例: 週末副業など）をメンバー個別に指定することはスコープ外とし、プロジェクト営業日のサブセット（部分集合）に限定する（最小・安全なフィルター設計）。チームとして休日に稼働させる場合は `calendar.workdays` に該当曜日を追加してプロジェクト全体で許容する運用とする。
 
 ---
 
@@ -224,3 +313,7 @@ task_progress:
   - **検討**: すべての CLI コマンドで warnings を stderr に出力する案。
   - **決定**: `taskweave validate` のみに警告表示を集約。
   - **理由**: CI やシェルパイプラインにおいて `taskweave plan --format json` や `--format mermaid` の標準出力を他ツールへパイプ・リダイレクトする際、不要な stderr 出力による自動化ツールの誤検知リスクを低減するため。原本の構文・非推奨警告のチェックは `taskweave validate` で明示的に行う責務分離を維持する。
+- **設計判断 D: メンバー個別稼働曜日のフィルターモデル (Issue #51 AC-2)**:
+  - **検討**: メンバーごとにプロジェクト営業日外の曜日（例: 土日）を独立して許容する「スーパーセットモデル」と、プロジェクト営業日を上限とする「サブセットモデル（フィルターモデル）」。
+  - **決定**: サブセットモデル（`calendar.workdays` の部分集合）を採用。
+  - **理由**: プロジェクト全体の営業日・カレンダーとの不整合を防ぎ、予期せぬ週末稼働や Makespan 算出の複雑化を防止するため。混成チームにおいて最も安全かつ最小の拡張である。
