@@ -299,6 +299,25 @@ def validate_tasks(yaml_string: str) -> ValidationResult:
             else:
                 deadline = dl_str
 
+        assigned_to = None
+        if "assigned_to" in t and t["assigned_to"] is not None:
+            raw_assigned = t["assigned_to"]
+            if not isinstance(raw_assigned, str) or not raw_assigned.strip():
+                errors.append(f"{prefix}.assigned_to: 文字列である必要があります")
+            else:
+                assigned_to = raw_assigned.strip()
+
+        preferred_member = None
+        if "preferred_member" in t and t["preferred_member"] is not None:
+            raw_pref = t["preferred_member"]
+            if not isinstance(raw_pref, str) or not raw_pref.strip():
+                errors.append(f"{prefix}.preferred_member: 文字列である必要があります")
+            else:
+                preferred_member = raw_pref.strip()
+
+        if assigned_to is not None and preferred_member is not None:
+            errors.append(f"{prefix}: 'assigned_to' と 'preferred_member' を同時に指定することはできません")
+
         tasks.append({
             "id": t_id,
             "title": t_title,
@@ -306,6 +325,8 @@ def validate_tasks(yaml_string: str) -> ValidationResult:
             "required_skills": required_skills,
             "depends_on": depends_on,
             "deadline": deadline,
+            "assigned_to": assigned_to,
+            "preferred_member": preferred_member,
         })
 
     return ValidationResult(valid=len(errors) == 0, errors=errors, data=tasks)
@@ -626,7 +647,7 @@ def validate_logical_integrity(
         if visited.get(task_id, 0) == 0:
             dfs(task_id, [])
 
-    # 3. 未定義スキル参照チェック (Undefined Skill Reference)
+    # 3. 未定義スキル参照およびタスク割当メンバー整合性チェック
     member_ids: set[str] = set()
     if isinstance(members, list):
         member_ids = {
@@ -634,25 +655,54 @@ def validate_logical_integrity(
             for m in members
             if isinstance(m, dict) and isinstance(m.get("id"), str)
         }
-        member_skill_sets = [
-            set(m.get("skills", []))
+        member_skill_map = {
+            m["id"]: set(m.get("skills", []))
             for m in members
-            if isinstance(m, dict) and isinstance(m.get("skills"), list)
-        ]
+            if isinstance(m, dict) and isinstance(m.get("id"), str)
+        }
+        member_skill_sets = list(member_skill_map.values())
 
         for i, t in enumerate(tasks):
             if not isinstance(t, dict):
                 continue
             raw_req = t.get("required_skills")
-            if not isinstance(raw_req, list) or not raw_req:
-                continue
-            req_skills = [s for s in raw_req if isinstance(s, str)]
+            req_skills = [s for s in raw_req if isinstance(s, str)] if isinstance(raw_req, list) else []
+            req_set = set(req_skills)
+
+            # assigned_to の検証 (AC-2)
+            assigned_to = t.get("assigned_to")
+            if assigned_to:
+                if assigned_to not in member_ids:
+                    errors.append(
+                        f'tasks[{i}].assigned_to: 未定義のメンバ "{assigned_to}" を参照しています。'
+                        f"解決のヒント: members.yaml にメンバを定義するか、担当者指定を見直してください"
+                    )
+                elif req_skills and not req_set.issubset(member_skill_map.get(assigned_to, set())):
+                    skills_str = ", ".join(req_skills)
+                    errors.append(
+                        f'tasks[{i}].assigned_to: 指定されたメンバ "{assigned_to}" はタスク "{t.get("id")}" の必須スキル [{skills_str}] '
+                        f"をすべて保有していません。解決のヒント: 必須スキルを保有するメンバを指定するか、members.yaml または required_skills を見直してください"
+                    )
+
+            # preferred_member の検証 (AC-2)
+            preferred_member = t.get("preferred_member")
+            if preferred_member:
+                if preferred_member not in member_ids:
+                    errors.append(
+                        f'tasks[{i}].preferred_member: 未定義のメンバ "{preferred_member}" を参照しています。'
+                        f"解決のヒント: members.yaml にメンバを定義するか、推奨担当者指定を見直してください"
+                    )
+                elif req_skills and not req_set.issubset(member_skill_map.get(preferred_member, set())):
+                    skills_str = ", ".join(req_skills)
+                    errors.append(
+                        f'tasks[{i}].preferred_member: 指定されたメンバ "{preferred_member}" はタスク "{t.get("id")}" の必須スキル [{skills_str}] '
+                        f"をすべて保有していません。解決のヒント: 必須スキルを保有するメンバを指定するか、members.yaml または required_skills を見直してください"
+                    )
+
             if not req_skills:
                 continue
 
-            req_set = set(req_skills)
             has_capable = any(req_set.issubset(s_set) for s_set in member_skill_sets)
-
             if not has_capable:
                 skills_str = ", ".join(req_skills)
                 errors.append(

@@ -1572,6 +1572,137 @@ class TestSinglePassDataPipeline:
         assert "ヒント" in captured.err
 
 
+class TestTaskAssignmentCLI:
+    """Issue #52: タスク担当者指定の CLI テスト."""
+
+    def test_plan_with_assigned_to_and_preferred_member(self, basic_project_files):
+        """AC-7: CLI plan で assigned_to と preferred_member が反映された担当者が出力されること."""
+        (basic_project_files / "tasks.yaml").write_text(
+            """tasks:
+  - id: "task-api"
+    title: "REST API 設計"
+    estimate_hours: 8.0
+    required_skills:
+      - backend
+    assigned_to: "bob"
+    depends_on: []
+  - id: "task-ui"
+    title: "UI 実装"
+    estimate_hours: 8.0
+    required_skills:
+      - frontend
+    preferred_member: "alice"
+    depends_on:
+      - "task-api"
+""",
+            encoding="utf-8",
+        )
+        result = run_cli("plan", str(basic_project_files), "--format", "text")
+        assert result.returncode == 0
+        assert "- task-api: bob" in result.stdout
+        assert "- task-ui: alice" in result.stdout
+
+    def test_plan_infeasible_outputs_bottlenecks_to_stderr(self, tmp_path):
+        """AC-3: assigned_to により Infeasible となった場合、stderr にボトルネック診断が出力されること."""
+        (tmp_path / "members.yaml").write_text((BASIC_DIR / "members.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        (tmp_path / "calendar.yaml").write_text((BASIC_DIR / "calendar.yaml").read_text(encoding="utf-8"), encoding="utf-8")
+        # Alice のみで、過去納期かつ極端に短納期・過大工数など、通常では不可能な制約
+        # または members.yaml で alice の稼働上限を非常に小さくしてタスクを assigned_to: alice にする
+        (tmp_path / "members.yaml").write_text(
+            """members:
+  - id: "alice"
+    name: "Alice"
+    max_capacity: 0.1
+    skills:
+      - backend
+  - id: "bob"
+    name: "Bob"
+    max_capacity: 1.0
+    skills:
+      - backend
+""",
+            encoding="utf-8",
+        )
+        # Alice の日別稼働上限は 0.8h。タスク工数は 80h で deadline は 2026-09-02 (2日後)
+        (tmp_path / "tasks.yaml").write_text(
+            """tasks:
+  - id: "task-large"
+    title: "Huge Task"
+    estimate_hours: 80.0
+    required_skills:
+      - backend
+    assigned_to: "alice"
+    deadline: "2026-09-02"
+""",
+            encoding="utf-8",
+        )
+        # engine の force_infeasible_deadline またはキャパシティ超過をテストするため、
+        # 直接 solve_schedule をモックするか、あるいは極端な設定
+        # 実際に CLI から実行
+        # 注: 通常の horizon は自動拡張されるが、メンバーのキャパシティが極端に少なくても horizon が無限ではない
+        # ここでは Alice の稼働上限 0.1 (0.8h/日)、タスク 1000h
+        # 確実に INFEASIBLE になるケース:
+        # absences で全稼働日を Alice 不在にする
+        (tmp_path / "calendar.yaml").write_text(
+            """calendar:
+  workdays:
+    - mon
+    - tue
+    - wed
+    - thu
+    - fri
+  holidays: []
+  absences:
+    - member_id: "alice"
+      date: "2026-09-01"
+    - member_id: "alice"
+      date: "2026-09-02"
+    - member_id: "alice"
+      date: "2026-09-03"
+    - member_id: "alice"
+      date: "2026-09-04"
+""",
+            encoding="utf-8",
+        )
+        (tmp_path / "tasks.yaml").write_text(
+            """tasks:
+  - id: "task-blocked"
+    title: "Blocked Task"
+    estimate_hours: 8.0
+    required_skills:
+      - backend
+    assigned_to: "alice"
+""",
+            encoding="utf-8",
+        )
+        # Alice は不在だが Horizon=30日なら不在日以外に割り当てられる。
+        # なので、Horizon 内に Alice が全く稼働できないようにするか、
+        # あるいは python 側でテストする。
+        # 既に test_solve_schedule_assigned_to_infeasible_diagnostics でテスト済み。
+        # CLI の stderr 出力をテストするために、solve_schedule を patch して status="INFEASIBLE" と diagnostics を返す。
+        from unittest.mock import patch
+        infeasible_result = {
+            "status": "INFEASIBLE",
+            "diagnostics": {
+                "infeasible_reasons": ["メンバ 'alice' の計画期間内キャパシティを超過しています"]
+            }
+        }
+        with patch("taskweave.engine.solve_schedule", return_value=infeasible_result):
+            from taskweave.cli import main
+            import io
+            import sys
+            saved_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                code = main(["plan", str(tmp_path)])
+                err_out = sys.stderr.getvalue()
+                assert code == 1
+                assert "ボトルネック診断" in err_out
+                assert "alice" in err_out
+            finally:
+                sys.stderr = saved_stderr
+
+
 
 
 

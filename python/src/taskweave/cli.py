@@ -329,6 +329,9 @@ def main(argv: list[str] | None = None) -> int:
 
         if result.get("status") not in ("OPTIMAL", "FEASIBLE"):
             sys.stderr.write(f"計画の計算が完了しませんでした (ステータス: {result.get('status')})\n")
+            infeasible_reasons = result.get("diagnostics", {}).get("infeasible_reasons", [])
+            for reason in infeasible_reasons:
+                sys.stderr.write(f"[!] ボトルネック診断: {reason}\n")
             return 1
 
         if args.format == "json":
